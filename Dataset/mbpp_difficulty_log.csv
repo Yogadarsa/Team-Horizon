@@ -1,0 +1,31 @@
+task_id,difficulty,initial_29_oct,prompt
+17,Easy,True,Write a function that returns the perimeter of a square given its side length as input.
+58,Easy,False,Write a python function to check whether the given two integers have opposite sign or not.
+62,Easy,True,Write a python function to find smallest number in a list.
+66,Easy,False,Write a python function to count the number of positive numbers in a list.
+79,Easy,True,Write a python function to check whether the length of the word is odd or not.
+82,Easy,True,Write a function to find the volume of a sphere.
+93,Easy,False,Write a function to calculate the value of 'a' to the power 'b'.
+105,Easy,False,Write a python function to count true booleans in the given list.
+127,Easy,False,Write a function to multiply two integers.
+404,Easy,False,Write a python function to find the minimum of two numbers.
+18,Medium,False,Write a function to remove characters from the first string which are present in the second string.
+19,Medium,False,Write a function to find whether a given array of integers contains any duplicate element.
+64,Medium,False,Write a function to sort a list of tuples using the second value of each tuple.
+68,Medium,True,Write a python function to check whether the given array is monotonic or not.
+69,Medium,True,Write a function to check whether a list contains the given sublist or not.
+75,Medium,False,Write a function to find tuples which have all elements divisible by k from the given list of tuples.
+88,Medium,True,"Write a function to get the frequency of all the elements in a list, returned as a dictionary."
+97,Medium,False,"Write a function to find frequency of each element in a flattened list of lists, returned in a dictionary."
+108,Medium,False,Write a function to merge three lists into a single sorted list.
+129,Medium,False,Write a function to calculate whether the matrix is a magic square.
+61,Hard,True,Write a python function to count the number of substrings with the sum of digits equal to their length.
+67,Hard,True,Write a function to find the number of ways to partition a set of Bell numbers.
+84,Hard,False,Write a function to find the nth number in the newman conway sequence.
+100,Hard,False,"Write a function to find the next smallest palindrome of a specified integer, returned as an integer."
+103,Hard,False,"Write a function to find the Eulerian number a(n, m)."
+125,Hard,False,Write a function to find the maximum difference between the number of 0s and number of 1s in any sub-string of the given binary string.
+407,Hard,False,Write a function to create the next bigger number by rearranging the digits of a given number.
+408,Hard,False,Write a function to find k number of smallest pairs which consist of one element from the first array and one element from the second array.
+463,Hard,True,Write a function to find the maximum product subarray of the given array.
+468,Hard,False,Write a function to find the maximum product formed by multiplying numbers of an increasing subsequence of that array.
