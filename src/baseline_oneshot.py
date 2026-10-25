@@ -88,13 +88,17 @@ def load_tasks(dataset, data_file=None, limit=None):
 class HFBackend:
     """Hugging Face transformers - works on a laptop GPU or the KTU JupyterLab server."""
 
-    def __init__(self, model_id, max_new_tokens):
+    def __init__(self, model_id, max_new_tokens, quant=None, remote_code=True):
         from transformers import AutoModelForCausalLM, AutoTokenizer
         self.max_new_tokens = max_new_tokens
-        self.tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_id, torch_dtype="auto", device_map="auto", trust_remote_code=True
-        )
+        self.tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=remote_code)
+        kwargs = dict(device_map="auto", trust_remote_code=remote_code)
+        if quant == "8bit":  # same setting as 02_Models_setup.ipynb (DeepSeek)
+            from transformers import BitsAndBytesConfig
+            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        else:
+            kwargs["torch_dtype"] = "auto"
+        self.model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
 
     def generate(self, system, user, task=None):
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -272,7 +276,12 @@ def main():
     ap.add_argument("--limit", type=int, help="only the first N tasks (use 10-20 for a pilot)")
     ap.add_argument("--timeout", type=int, default=10, help="seconds allowed to run each solution")
     ap.add_argument("--max-new-tokens", type=int, default=512, help="keep identical for all runs")
+    ap.add_argument("--quant", choices=["8bit"], help="8-bit bitsandbytes, HF backend only (as in 02_Models_setup.ipynb)")
+    ap.add_argument("--no-remote-code", action="store_true",
+                    help="use the transformers built-in model class instead of the repo's custom code")
     ap.add_argument("--out-dir", default="results")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue an interrupted run: keep finished tasks in the CSV and skip them")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
 
@@ -281,7 +290,7 @@ def main():
 
     tasks = load_tasks(a.dataset, a.data_file, a.limit)
     if a.backend == "hf":
-        backend = HFBackend(a.model, a.max_new_tokens)
+        backend = HFBackend(a.model, a.max_new_tokens, a.quant, not a.no_remote_code)
     elif a.backend == "ollama":
         backend = OllamaBackend(a.model, a.max_new_tokens)
     else:
@@ -289,13 +298,34 @@ def main():
 
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"oneshot_{re.sub(r'[^\w.-]', '_', a.model)}_{a.dataset}"
+    label = a.model + (f"@{a.quant}" if a.quant else "")
+    stem = f"oneshot_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}"
+    csv_path = out / f"{stem}.csv"
     rows = []
-    with open(out / f"{stem}.csv", "w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
+    if a.resume and csv_path.exists():
+        with open(csv_path, newline="", encoding="utf-8") as old:
+            for r in csv.DictReader(old):
+                try:
+                    r["solved"] = int(r["solved"])
+                    for k in ("iterations", "input_tokens", "output_tokens"):
+                        r[k] = int(r[k])
+                    for k in ("gen_time_s", "exec_time_s", "total_time_s"):
+                        r[k] = float(r[k])
+                except (TypeError, ValueError):
+                    continue  # half-written last line from a killed run
+                rows.append(r)
+        print(f"Resuming: {len(rows)} tasks already finished")
+    done = {r["task_id"] for r in rows}
+    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=CSV_FIELDS, extrasaction="ignore")
         w.writeheader()
+        for r in rows:
+            w.writerow(r)
+        fh.flush()
         for i, task in enumerate(tasks, 1):
-            row = run_task(task, backend, a.model, a.timeout)
+            if task["task_id"] in done:
+                continue
+            row = run_task(task, backend, label, a.timeout)
             rows.append(row)
             w.writerow(row)
             fh.flush()  # keep partial results if the run crashes
