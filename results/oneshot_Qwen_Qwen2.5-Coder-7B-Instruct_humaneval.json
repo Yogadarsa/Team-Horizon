@@ -1,0 +1,16 @@
+{
+  "strategy": "A_oneshot",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 164,
+  "solved": 142,
+  "pass@1": 0.8659,
+  "avg_total_time_s": 4.337,
+  "total_input_tokens": 31197,
+  "total_output_tokens": 28128,
+  "tokens_per_solved_task": 417.8,
+  "status_counts": {
+    "passed": 142,
+    "test_failure": 20,
+    "runtime_error": 2
+  }
+}
