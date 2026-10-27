@@ -1,0 +1,26 @@
+{
+  "Qwen": {
+    "strategy": "A",
+    "correction_iterations": 0,
+    "tasks": 10,
+    "syntax_valid": 10,
+    "total_generation_time_seconds": 11.5842,
+    "average_generation_time_seconds": 1.1584,
+    "total_output_tokens": 485,
+    "average_output_tokens": 48.5,
+    "pass_at_1": null,
+    "functional_evaluation_status": "pending"
+  },
+  "DeepSeek": {
+    "strategy": "A",
+    "correction_iterations": 0,
+    "tasks": 10,
+    "syntax_valid": 9,
+    "total_generation_time_seconds": 206.2228,
+    "average_generation_time_seconds": 20.6223,
+    "total_output_tokens": 855,
+    "average_output_tokens": 85.5,
+    "pass_at_1": null,
+    "functional_evaluation_status": "pending"
+  }
+}
