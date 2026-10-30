@@ -5,11 +5,11 @@ Strategy A - one-shot baseline (n = 0 corrections).
 Flow per task:  task -> LLM generates code ONCE -> run unit tests -> log result.
 No compiler feedback, no retries. This is the reference point for strategies B and C.
 
-Fixed on purpose (team decision 12 Oct: "everything fixed, no tuning"):
+Fixed on purpose :
   * greedy decoding (do_sample=False), so runs are reproducible
-  * max_new_tokens identical for every model and every strategy (default 256)
+  * max_new_tokens identical for every model and every strategy
 
-Execution of generated code (professor: "isolated environment with time and resource limits"):
+Execution of generated code :
   * every solution runs in its own temporary folder, as a separate Python process in isolated mode (-I)
   * limits per run: wall-clock timeout, CPU time, memory, file size
   * on timeout the whole process group is killed (also child processes the code started)
@@ -18,7 +18,7 @@ Execution of generated code (professor: "isolated environment with time and reso
 Quick check that your environment works (no model, no dataset needed):
     python baseline_oneshot.py --selftest
 
-Team dataset (Shankar's Dataset/ folder, MBPP tasks with difficulty levels):
+Team dataset:
     python src/baseline_oneshot.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct --dataset mbpp --data-file Dataset/mbpp_initial_10.jsonl
     python src/baseline_oneshot.py --backend hf --model deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct --quant 8bit --no-remote-code --dataset mbpp --data-file Dataset/mbpp_final_30.jsonl
 
@@ -71,7 +71,7 @@ def normalize(row, dataset):
             "tests": row["test"] + f"\ncheck({ep})\n",
             "mock_output": row["prompt"] + row.get("canonical_solution", ""),
         }
-    # official MBPP "full" uses text + test_setup_code; the team dataset (sanitized MBPP) uses prompt + test_imports
+    # official MBPP "full" uses text + test_setup_code; the dataset uses prompt + test_imports
     text = row["text"] if "text" in row else row["prompt"]
     setup = row.get("test_setup_code") or "\n".join(row.get("test_imports") or [])
     prompt = f"{text}\nYour code must pass this test:\n{row['test_list'][0]}"
