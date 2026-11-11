@@ -13,12 +13,15 @@ Per task:
      in the same isolated process as Strategy A (time + memory limits).
      If it fails, the feedback says what was expected and what the code returned.
   4. If 2 or 3 failed: send task + previous code + feedback to the same LLM -> new code -> back to 2.
-     Stop when the dev test passes or after --max-repairs repairs (default 3).
+     Stop when the dev test passes, or after --max-repairs repairs (default 3), or when the model
+     writes the same code again: with greedy decoding the next prompt would then be identical,
+     so the next answer would be identical too. Stopping there cannot change the result, it only saves cost.
   5. Final evaluation: the last code is run against ALL 3 tests (same check as Strategy A),
      so Pass@1 is directly comparable with A. Tests 2 and 3 are never shown to the model.
 
 Output (results/):  feedback_n<k>_<model>_<dataset>_<data file>.csv / .json / _code.jsonl
-Extra CSV columns: first_status (attempt 1 on all tests = Strategy A result), dev_passed, stop_reason.
+Extra CSV columns: first_status (attempt 1 on all tests = Strategy A result), dev_passed,
+stop_reason (dev_test_passed / repeated_code / max_repairs_reached).
 
 Needs src/baseline_oneshot.py next to this file.
 
@@ -122,21 +125,27 @@ def run_task(task, backend, model_label, timeout, max_repairs):
     attempts = []
     prompt = base.build_user_prompt(task)
     code = feedback = first = ""
-    dev_ok = False
+    dev_ok, stop = False, "max_repairs_reached"
     for gen_no in range(max_repairs + 1):
         if gen_no > 0:
             prompt = build_repair_prompt(task, code, feedback)
         t0 = time.perf_counter()
         text, i, o = backend.generate(base.SYSTEM_PROMPT, prompt, dict(task, repair=gen_no))
-        t_gen += time.perf_counter() - t0
+        g = time.perf_counter() - t0
+        t_gen += g
         n_in, n_out = n_in + i, n_out + o
         code = base.extract_code(text)
         dev_ok, feedback, dt = check(task, code, timeout)
         t_exec += dt
-        attempts.append({"code": code, "dev_passed": dev_ok, "feedback": feedback, "raw_output": text})
+        attempts.append({"code": code, "dev_passed": dev_ok, "feedback": feedback, "raw_output": text,
+                         "input_tokens": i, "output_tokens": o, "gen_time_s": round(g, 3)})
         if gen_no == 0:  # attempt 1 on all tests = what Strategy A would score (not counted in time)
             first = base.run_program(base.build_program(task, code), timeout)[0] if code.strip() else "no_code"
         if dev_ok:
+            stop = "dev_test_passed"
+            break
+        if gen_no > 0 and (code, feedback) == (attempts[-2]["code"], attempts[-2]["feedback"]):
+            stop = "repeated_code"  # same code + same error -> next prompt and answer would be identical
             break
 
     # final evaluation on all 3 tests (same as Strategy A)
@@ -154,7 +163,7 @@ def run_task(task, backend, model_label, timeout, max_repairs):
         "gen_time_s": round(t_gen, 3), "exec_time_s": round(t_exec, 3),
         "total_time_s": round(t_gen + t_exec, 3),
         "first_status": first, "dev_passed": int(dev_ok),
-        "stop_reason": "dev_test_passed" if dev_ok else "max_repairs_reached",
+        "stop_reason": stop,
     }
     return row, {"task_id": task["task_id"], "status": status, "attempts": attempts}
 
@@ -167,6 +176,7 @@ def summarize(rows, settings=None):
     s["first_attempt_pass@1"] = round(first_pass / n, 4) if n else None  # should equal Strategy A
     s["fixed_by_repair"] = sum(r["solved"] for r in rows) - first_pass
     s["avg_iterations"] = round(sum(r["iterations"] for r in rows) / n, 3) if n else None
+    s["stop_reason_counts"] = dict(Counter(r["stop_reason"] for r in rows))
     s["dev_passed_but_hidden_failed"] = sum(1 for r in rows if int(r["dev_passed"]) and not r["solved"])
     s["first_status_counts"] = dict(Counter(r["first_status"] for r in rows))
     return s
@@ -201,7 +211,9 @@ def selftest():
         "fixed_syntax": ([bad_syntax, ok_code], (1, 2, "syntax_error", "dev_test_passed")),
         "fixed_logic": ([bad_logic, ok_code], (1, 2, "test_failure", "dev_test_passed")),
         "fixed_crash": ([crash, ok_code], (1, 2, "runtime_error", "dev_test_passed")),
-        "never_fixed": ([bad_logic], (0, 4, "test_failure", "max_repairs_reached")),
+        "repeats_code": ([bad_logic], (0, 2, "test_failure", "repeated_code")),
+        "never_fixed": ([bad_logic, crash, bad_syntax, "def add(a, b):\n    return a * b"],
+                        (0, 4, "test_failure", "max_repairs_reached")),
         "dev_only": ([only_dev], (0, 1, "test_failure", "dev_test_passed")),
     }
     tasks = []
