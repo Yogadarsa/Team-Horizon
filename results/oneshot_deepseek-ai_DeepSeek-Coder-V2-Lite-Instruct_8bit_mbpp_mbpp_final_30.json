@@ -1,0 +1,74 @@
+{
+  "strategy": "A_oneshot",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit",
+  "tasks": 30,
+  "solved": 25,
+  "pass@1": 0.8333,
+  "total_exec_time_s": 1.471,
+  "avg_exec_time_s": 0.049,
+  "total_gen_time_s": 1342.403,
+  "total_input_tokens": 2722,
+  "total_output_tokens": 3709,
+  "tokens_per_solved_task": 257.2,
+  "status_counts": {
+    "passed": 25,
+    "test_failure": 4,
+    "runtime_error": 1
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.483,
+      "avg_exec_time_s": 0.048,
+      "total_gen_time_s": 194.564,
+      "total_input_tokens": 725,
+      "total_output_tokens": 496,
+      "tokens_per_solved_task": 122.1,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 8,
+      "pass@1": 0.8,
+      "total_exec_time_s": 0.493,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 461.177,
+      "total_input_tokens": 1179,
+      "total_output_tokens": 1276,
+      "tokens_per_solved_task": 306.9,
+      "status_counts": {
+        "passed": 8,
+        "test_failure": 1,
+        "runtime_error": 1
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 7,
+      "pass@1": 0.7,
+      "total_exec_time_s": 0.495,
+      "avg_exec_time_s": 0.05,
+      "total_gen_time_s": 686.662,
+      "total_input_tokens": 818,
+      "total_output_tokens": 1937,
+      "tokens_per_solved_task": 393.6,
+      "status_counts": {
+        "passed": 7,
+        "test_failure": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "8bit",
+    "data": "Dataset/mbpp_final_30.jsonl",
+    "limit": null
+  }
+}
