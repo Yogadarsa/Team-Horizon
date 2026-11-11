@@ -1,0 +1,79 @@
+{
+  "strategy": "B_feedback",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 10,
+  "solved": 10,
+  "pass@1": 1.0,
+  "total_exec_time_s": 1.056,
+  "avg_exec_time_s": 0.106,
+  "total_gen_time_s": 25.8,
+  "total_input_tokens": 1160,
+  "total_output_tokens": 1006,
+  "tokens_per_solved_task": 216.6,
+  "status_counts": {
+    "passed": 10
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 4,
+      "solved": 4,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.431,
+      "avg_exec_time_s": 0.108,
+      "total_gen_time_s": 6.767,
+      "total_input_tokens": 474,
+      "total_output_tokens": 229,
+      "tokens_per_solved_task": 175.8,
+      "status_counts": {
+        "passed": 4
+      }
+    },
+    "Medium": {
+      "tasks": 3,
+      "solved": 3,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.339,
+      "avg_exec_time_s": 0.113,
+      "total_gen_time_s": 7.149,
+      "total_input_tokens": 448,
+      "total_output_tokens": 291,
+      "tokens_per_solved_task": 246.3,
+      "status_counts": {
+        "passed": 3
+      }
+    },
+    "Hard": {
+      "tasks": 3,
+      "solved": 3,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.286,
+      "avg_exec_time_s": 0.095,
+      "total_gen_time_s": 11.884,
+      "total_input_tokens": 238,
+      "total_output_tokens": 486,
+      "tokens_per_solved_task": 241.3,
+      "status_counts": {
+        "passed": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "max_repairs": 3,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_initial_10.jsonl"
+  },
+  "first_attempt_pass@1": 0.8,
+  "fixed_by_repair": 2,
+  "avg_iterations": 1.2,
+  "dev_passed_but_hidden_failed": 0,
+  "first_status_counts": {
+    "passed": 8,
+    "test_failure": 2
+  }
+}

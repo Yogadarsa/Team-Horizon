@@ -1,0 +1,11 @@
+task_id,difficulty,model,strategy,solved,status,error,iterations,input_tokens,output_tokens,gen_time_s,exec_time_s,total_time_s,first_status,dev_passed,stop_reason
+MBPP/17,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,71,38,1.48,0.094,1.574,passed,1,dev_test_passed
+MBPP/62,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,81,31,0.763,0.096,0.859,passed,1,dev_test_passed
+MBPP/79,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,2,229,108,3.237,0.146,3.383,test_failure,1,dev_test_passed
+MBPP/82,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,93,52,1.287,0.095,1.382,passed,1,dev_test_passed
+MBPP/68,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,80,94,2.322,0.095,2.417,passed,1,dev_test_passed
+MBPP/69,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,2,226,144,3.531,0.148,3.679,test_failure,1,dev_test_passed
+MBPP/88,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,142,53,1.296,0.096,1.392,passed,1,dev_test_passed
+MBPP/61,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,80,85,2.056,0.094,2.151,passed,1,dev_test_passed
+MBPP/67,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,68,128,3.126,0.096,3.222,passed,1,dev_test_passed
+MBPP/463,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,90,273,6.702,0.096,6.799,passed,1,dev_test_passed
