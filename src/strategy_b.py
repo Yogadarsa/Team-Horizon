@@ -204,7 +204,7 @@ def summarize(rows, settings=None):
     s["final_success_rate"] = s["solve_rate"]
     n = len(rows)
     first_pass = sum(r["first_status"] == "passed" for r in rows)
-    s["first_attempt_pass@1"] = round(first_pass / n, 4) if n else None  # should equal Strategy A
+    s["first_attempt_solve_rate"] = round(first_pass / n, 4) if n else None  # should equal Strategy A
     s["fixed_by_repair"] = sum(r["solved"] for r in rows) - first_pass
     s["stop_reason_counts"] = dict(Counter(r["stop_reason"] for r in rows))
     s["dev_passed_but_hidden_failed"] = sum(1 for r in rows if int(r["dev_passed"]) and not r["solved"])

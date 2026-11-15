@@ -1,0 +1,85 @@
+{
+  "strategy": "B_feedback",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit",
+  "tasks": 30,
+  "solved": 25,
+  "pass@1": 0.8333,
+  "total_exec_time_s": 3.554,
+  "avg_exec_time_s": 0.118,
+  "total_gen_time_s": 2790.992,
+  "total_input_tokens": 6912,
+  "total_output_tokens": 7872,
+  "tokens_per_solved_task": 591.4,
+  "status_counts": {
+    "passed": 25,
+    "test_failure": 4,
+    "runtime_error": 1
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.97,
+      "avg_exec_time_s": 0.097,
+      "total_gen_time_s": 194.415,
+      "total_input_tokens": 725,
+      "total_output_tokens": 496,
+      "tokens_per_solved_task": 122.1,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 8,
+      "pass@1": 0.8,
+      "total_exec_time_s": 1.29,
+      "avg_exec_time_s": 0.129,
+      "total_gen_time_s": 1004.829,
+      "total_input_tokens": 3788,
+      "total_output_tokens": 2826,
+      "tokens_per_solved_task": 826.8,
+      "status_counts": {
+        "passed": 8,
+        "test_failure": 1,
+        "runtime_error": 1
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 7,
+      "pass@1": 0.7,
+      "total_exec_time_s": 1.294,
+      "avg_exec_time_s": 0.129,
+      "total_gen_time_s": 1591.748,
+      "total_input_tokens": 2399,
+      "total_output_tokens": 4550,
+      "tokens_per_solved_task": 992.7,
+      "status_counts": {
+        "passed": 7,
+        "test_failure": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "8bit",
+    "max_repairs": 3,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl"
+  },
+  "first_attempt_pass@1": 0.8333,
+  "fixed_by_repair": 0,
+  "avg_iterations": 1.4,
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 25,
+    "test_failure": 4,
+    "runtime_error": 1
+  }
+}

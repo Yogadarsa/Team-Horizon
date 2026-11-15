@@ -25,7 +25,6 @@
     "passed": 8,
     "test_failure": 2
   },
-  "pass@1": 0.8,
   "by_difficulty": {
     "Easy": {
       "tasks": 4,

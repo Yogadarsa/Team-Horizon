@@ -136,7 +136,7 @@
     }
   },
   "final_success_rate": 0.8333,
-  "first_attempt_pass@1": 0.8333,
+  "first_attempt_solve_rate": 0.8333,
   "fixed_by_repair": 0,
   "stop_reason_counts": {
     "dev_test_passed": 26,

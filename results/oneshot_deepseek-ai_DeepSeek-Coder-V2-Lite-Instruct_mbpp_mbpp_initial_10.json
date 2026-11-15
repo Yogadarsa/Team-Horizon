@@ -24,7 +24,6 @@
   "status_counts": {
     "passed": 10
   },
-  "pass@1": 1.0,
   "by_difficulty": {
     "Easy": {
       "tasks": 4,

@@ -1,0 +1,11 @@
+task_id,difficulty,model,strategy,solved,status,error,iterations,input_tokens,output_tokens,gen_time_s,exec_time_s,total_time_s
+MBPP/17,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,71,38,1.504,0.048,1.551
+MBPP/62,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,81,31,0.76,0.047,0.807
+MBPP/79,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,0,test_failure,AssertionError,1,70,54,1.341,0.051,1.392
+MBPP/82,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,93,52,1.271,0.048,1.319
+MBPP/68,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,80,94,2.287,0.048,2.335
+MBPP/69,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,0,test_failure,AssertionError,1,79,27,0.659,0.05,0.709
+MBPP/88,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,142,53,1.3,0.048,1.348
+MBPP/61,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,80,85,2.077,0.048,2.125
+MBPP/67,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,68,128,3.11,0.049,3.159
+MBPP/463,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,A_oneshot,1,passed,,1,90,273,6.623,0.048,6.67

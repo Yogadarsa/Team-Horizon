@@ -27,7 +27,7 @@ Full official datasets (downloaded from Hugging Face):
 
 Outputs (in --out-dir, default ./results); <name> = model + dataset (+ data file name):
     oneshot_<name>.csv          one row per task (same columns B and C reuse)
-    oneshot_<name>.json         summary: pass@1 = solve_rate (also per difficulty), time, tokens,
+    oneshot_<name>.json         summary: solve_rate = solved / total (also per difficulty), time, tokens,
                                 exact model / library / GPU configuration
     oneshot_<name>_code.jsonl   full prompt (after the chat template), raw answer, extracted and cleaned code
 
@@ -353,7 +353,6 @@ def _stats(rows):
 
 def summarize(rows, settings=None):
     s = {"strategy": STRATEGY, "model": rows[0]["model"] if rows else None, **_stats(rows)}
-    s["pass@1"] = s["solve_rate"]  # one-shot, greedy: pass@1 == solve rate
     levels = defaultdict(list)
     for r in rows:
         if r.get("difficulty"):
