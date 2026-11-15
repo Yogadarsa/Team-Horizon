@@ -26,9 +26,22 @@ Full official datasets (downloaded from Hugging Face):
     python src/baseline_oneshot.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct --dataset humaneval
 
 Outputs (in --out-dir, default ./results); <name> = model + dataset (+ data file name):
-    oneshot_<name>.csv          one row per task (same columns B and C should reuse)
-    oneshot_<name>.json         summary: pass@1 (also per difficulty), time, tokens, tokens per solved task
-    oneshot_<name>_code.jsonl   the model's raw answer and the extracted code for every task
+    oneshot_<name>.csv          one row per task (same columns B and C reuse)
+    oneshot_<name>.json         summary: pass@1 = solve_rate (also per difficulty), time, tokens,
+                                exact model / library / GPU configuration
+    oneshot_<name>_code.jsonl   full prompt (after the chat template), raw answer, extracted and cleaned code
+
+Code handling (13 Nov, after checking raw DeepSeek answers):
+  * extract_code takes the LAST ```python block with a function: when a model repeats the old code and then
+    writes a corrected version, the corrected version is its answer.
+  * remove_model_tests removes the model's own top-level test code (asserts, prints, example calls); only imports,
+    functions, classes and constant assignments are kept (similar to the EvalPlus "sanitize" step).
+    The model's own (sometimes wrong) asserts must not decide the result or hide the real test feedback.
+    Checked on all Strategy A answers: neither change alters any A result.
+
+Times per task:  gen_time_s = all LLM calls,  eval_exec_time_s = final evaluation run (all tests, same in A/B/C),
+                 feedback_exec_time_s = extra runs used only to create feedback (0 in A),
+                 exec_time_s = eval + feedback,  total_time_s = gen + exec.
 """
 import argparse
 import csv
@@ -50,9 +63,17 @@ SYSTEM_PROMPT = (
     "Reply with the complete Python code in a single ```python code block and nothing else."
 )
 CSV_FIELDS = [
-    "task_id", "difficulty", "model", "strategy", "solved", "status", "error", "iterations",
-    "input_tokens", "output_tokens", "gen_time_s", "exec_time_s", "total_time_s",
+    "task_id", "difficulty", "model", "strategy", "solved", "status", "error",
+    "llm_calls", "repair_calls",
+    "input_tokens", "output_tokens",
+    "initial_input_tokens", "initial_output_tokens", "repair_input_tokens", "repair_output_tokens",
+    "gen_time_s", "initial_gen_time_s", "repair_gen_time_s",
+    "eval_exec_time_s", "feedback_exec_time_s", "exec_time_s", "total_time_s",
 ]
+INT_FIELDS = {"solved", "llm_calls", "repair_calls", "input_tokens", "output_tokens", "initial_input_tokens",
+              "initial_output_tokens", "repair_input_tokens", "repair_output_tokens", "iterations"}
+FLOAT_FIELDS = {"gen_time_s", "initial_gen_time_s", "repair_gen_time_s", "eval_exec_time_s",
+                "feedback_exec_time_s", "exec_time_s", "total_time_s"}
 LIMITS = {"mem_mb": 1024, "fsize_mb": 10}  # set from the command line in main()
 
 
@@ -115,10 +136,17 @@ class HFBackend:
         else:
             kwargs["torch_dtype"] = "auto"
         self.model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+        self.last_prompt = ""
+
+    def info(self):
+        cfg = self.model.config
+        return {"model_revision": getattr(cfg, "_commit_hash", None), "model_class": type(self.model).__name__,
+                "dtype": str(self.model.dtype), "device_map": str(getattr(self.model, "hf_device_map", ""))[:300]}
 
     def generate(self, system, user, task=None):
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         text = self.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        self.last_prompt = text  # exact text the model sees (chat template applied), saved in _code.jsonl
         enc = self.tok(text, return_tensors="pt", add_special_tokens=False).to(self.model.device)
         out = self.model.generate(
             **enc,
@@ -164,16 +192,37 @@ class MockBackend:
 # Code extraction + isolated execution
 # --------------------------------------------------------------------------- #
 def extract_code(text):
+    """The model's answer = the LAST code block that defines a function (a model often repeats the old
+    code first and writes the corrected version after it)."""
     blocks = re.findall(r"```(?:python|py)?[ \t]*\n(.*?)(?:```|\Z)", text, re.S)
     if not blocks:
         return text.strip("\n")
-    for b in blocks:
-        if "def " in b:
-            return b
-    return blocks[0]
+    with_def = [b for b in blocks if "def " in b]
+    return with_def[-1] if with_def else blocks[-1]
 
 
-def build_user_prompt(task):
+def remove_model_tests(code):
+    """Keep imports, functions, classes and constant assignments; drop the model's own top-level test code
+    (asserts, prints, example calls, loops, `if __name__ == ...` blocks). Unparseable code is returned
+    unchanged, so the syntax error is still reported."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+    keep = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            keep.append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and not any(isinstance(x, ast.Call) for x in ast.walk(node)):
+            keep.append(node)
+    if len(keep) == len(tree.body):
+        return code
+    tree.body = keep
+    return ast.unparse(tree)
+
+
+def make_prompt(task):
     if task["entry_point"]:
         return (
             "Complete the following Python function. Return the complete function "
@@ -182,7 +231,7 @@ def build_user_prompt(task):
     return task["prompt"]
 
 
-def build_program(task, code):
+def add_tests_to_code(task, code):
     if task["entry_point"] and f"def {task['entry_point']}" not in code:
         program = task["prompt"] + code  # model returned only a function body
     else:
@@ -213,7 +262,7 @@ runpy.run_path(path, run_name="__main__")
 """
 
 
-def run_program(program, timeout):
+def run_code(program, timeout):
     """Run generated code + tests in a separate, isolated Python process with time and resource limits."""
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "prog.py"
@@ -248,38 +297,55 @@ def run_program(program, timeout):
 # One task, summary
 # --------------------------------------------------------------------------- #
 def run_task(task, backend, model_name, timeout):
+    user = make_prompt(task)
     t0 = time.perf_counter()
-    text, n_in, n_out = backend.generate(SYSTEM_PROMPT, build_user_prompt(task), task)
+    text, n_in, n_out = backend.generate(SYSTEM_PROMPT, user, task)
     gen_time = time.perf_counter() - t0
-    code = extract_code(text)
+    extracted = extract_code(text)
+    code = remove_model_tests(extracted)
     if not code.strip():
         status, err, exec_time = "no_code", "empty model output", 0.0
     else:
-        status, err, exec_time = run_program(build_program(task, code), timeout)
+        status, err, exec_time = run_code(add_tests_to_code(task, code), timeout)
     row = {
         "task_id": task["task_id"], "difficulty": task.get("difficulty", ""),
         "model": model_name, "strategy": STRATEGY,
         "solved": int(status == "passed"), "status": status, "error": err,
-        "iterations": 1,  # one generation, zero corrections (n = 0)
+        "llm_calls": 1, "repair_calls": 0,  # one generation, zero corrections
         "input_tokens": n_in, "output_tokens": n_out,
-        "gen_time_s": round(gen_time, 3), "exec_time_s": round(exec_time, 3),
-        "total_time_s": round(gen_time + exec_time, 3),
+        "initial_input_tokens": n_in, "initial_output_tokens": n_out,
+        "repair_input_tokens": 0, "repair_output_tokens": 0,
+        "gen_time_s": round(gen_time, 3), "initial_gen_time_s": round(gen_time, 3), "repair_gen_time_s": 0.0,
+        "eval_exec_time_s": round(exec_time, 3), "feedback_exec_time_s": 0.0,
+        "exec_time_s": round(exec_time, 3), "total_time_s": round(gen_time + exec_time, 3),
     }
-    return row, {"task_id": task["task_id"], "status": status, "raw_output": text, "code": code}
+    gen = {"task_id": task["task_id"], "status": status, "error": err,
+           "prompt_rendered": getattr(backend, "last_prompt", "") or f"[system]\n{SYSTEM_PROMPT}\n[user]\n{user}",
+           "raw_output": text, "extracted_code": extracted, "code": code,
+           "input_tokens": n_in, "output_tokens": n_out, "hit_token_limit": n_out >= getattr(backend, "max_new_tokens", 10**9)}
+    return row, gen
 
 
 def _stats(rows):
     n = len(rows)
     solved = sum(r["solved"] for r in rows)
-    tok_in = sum(r["input_tokens"] for r in rows)
-    tok_out = sum(r["output_tokens"] for r in rows)
-    exec_total = sum(r["exec_time_s"] for r in rows)
+    tot = lambda k: sum(r.get(k, 0) or 0 for r in rows)
+    tok_in, tok_out = tot("input_tokens"), tot("output_tokens")
+    exec_total = tot("exec_time_s")
     return {
-        "tasks": n, "solved": solved, "pass@1": round(solved / n, 4) if n else None,
-        "total_exec_time_s": round(exec_total, 3),                      # Et task1 + ... + Et taskN
-        "avg_exec_time_s": round(exec_total / n, 3) if n else None,     # total exec time / number of tasks
-        "total_gen_time_s": round(sum(r["gen_time_s"] for r in rows), 3),  # model writing all answers
+        "tasks": n, "solved": solved, "solve_rate": round(solved / n, 4) if n else None,
+        "total_llm_calls": tot("llm_calls"), "total_repair_calls": tot("repair_calls"),
+        "avg_llm_calls": round(tot("llm_calls") / n, 3) if n else None,
+        "total_gen_time_s": round(tot("gen_time_s"), 3),               # all LLM calls
+        "total_initial_gen_time_s": round(tot("initial_gen_time_s"), 3),
+        "total_repair_gen_time_s": round(tot("repair_gen_time_s"), 3),
+        "total_eval_exec_time_s": round(tot("eval_exec_time_s"), 3),   # final evaluation, same procedure in A/B
+        "total_feedback_exec_time_s": round(tot("feedback_exec_time_s"), 3),  # extra runs for feedback (0 in A)
+        "total_exec_time_s": round(exec_total, 3),                     # eval + feedback
+        "avg_exec_time_s": round(exec_total / n, 3) if n else None,
         "total_input_tokens": tok_in, "total_output_tokens": tok_out,
+        "initial_input_tokens": tot("initial_input_tokens"), "initial_output_tokens": tot("initial_output_tokens"),
+        "repair_input_tokens": tot("repair_input_tokens"), "repair_output_tokens": tot("repair_output_tokens"),
         "tokens_per_solved_task": round((tok_in + tok_out) / solved, 1) if solved else None,
         "status_counts": dict(Counter(r["status"] for r in rows)),
     }
@@ -287,6 +353,7 @@ def _stats(rows):
 
 def summarize(rows, settings=None):
     s = {"strategy": STRATEGY, "model": rows[0]["model"] if rows else None, **_stats(rows)}
+    s["pass@1"] = s["solve_rate"]  # one-shot, greedy: pass@1 == solve rate
     levels = defaultdict(list)
     for r in rows:
         if r.get("difficulty"):
@@ -338,6 +405,13 @@ def selftest():
     ok &= good
     print(f"  {'OK ' if good else 'FAIL'} team dataset row  -> {r['status']} ({r['difficulty']}, code saved)")
 
+    # extraction: last block with a function wins; cleaning removes the model's own test code
+    raw = ("```python\ndef f(a, b):\n    return a - b\n```\nCorrected:\n```python\nimport math\n"
+           "def f(a, b):\n    return a + b\n\nprint(f(1, 2))\nassert f(1, 2) == 4\n```")
+    cleaned = remove_model_tests(extract_code(raw))
+    good = "a + b" in cleaned and "assert" not in cleaned and "print" not in cleaned and "import math" in cleaned
+    ok &= good
+    print(f"  {'OK ' if good else 'FAIL'} last code block taken, model's own asserts/prints removed")
     print("summary:", json.dumps(summarize(rows + [r])))
     print("SELFTEST PASSED" if ok else "SELFTEST FAILED")
     return 0 if ok else 1
@@ -349,16 +423,40 @@ def _read_rows(csv_path):
     with open(csv_path, newline="", encoding="utf-8") as old:
         for r in csv.DictReader(old):
             try:
-                r["solved"] = int(r["solved"])
-                for k in ("iterations", "input_tokens", "output_tokens"):
-                    r[k] = int(r[k])
-                for k in ("gen_time_s", "exec_time_s", "total_time_s"):
-                    r[k] = float(r[k])
+                for k in list(r):
+                    if k in INT_FIELDS:
+                        r[k] = int(r[k])
+                    elif k in FLOAT_FIELDS:
+                        r[k] = float(r[k])
+                if r.get("total_time_s") in (None, ""):
+                    raise ValueError
             except (TypeError, ValueError, KeyError):
                 continue  # half-written last line from a killed run
             r.setdefault("difficulty", "")
             rows.append(r)
     return rows
+
+
+def env_info(backend=None):
+    """Exact configuration and hardware, saved in the summary JSON."""
+    import platform
+    info = {"python": platform.python_version(), "host": platform.node(),
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", "(not set: all GPUs)")}
+    for mod in ("torch", "transformers", "bitsandbytes", "accelerate"):
+        try:
+            info[mod] = __import__(mod).__version__
+        except Exception:
+            info[mod] = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["gpus"] = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+            info["cuda"] = torch.version.cuda
+    except Exception:
+        pass
+    if backend is not None and hasattr(backend, "info"):
+        info.update(backend.info())
+    return info
 
 
 def main():
@@ -398,9 +496,11 @@ def main():
     name = f"{label}_{a.dataset}" + (f"_{Path(a.data_file).stem}" if a.data_file else "")
     stem = "oneshot_" + re.sub(r"[^\w.-]", "_", name)
     csv_path, code_path = out / f"{stem}.csv", out / f"{stem}_code.jsonl"
-    settings = {"max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
-                "mem_limit_mb": a.mem_mb, "quant": a.quant or "none",
-                "data": a.data_file or f"official {a.dataset}", "limit": a.limit}
+    settings = {"model": a.model, "max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
+                "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "remote_code": not a.no_remote_code,
+                "data": a.data_file or f"official {a.dataset}", "limit": a.limit,
+                "code_extraction": "last python block with a function; model's own top-level test code removed",
+                "environment": env_info(backend)}
 
     rows = _read_rows(csv_path) if a.resume and csv_path.exists() else []
     if a.resume:
@@ -424,7 +524,8 @@ def main():
             fh.flush()
             cf.flush()  # keep partial results if the run crashes
             print(f"[{i}/{len(tasks)}] {row['task_id']} {row['difficulty']}: {row['status']} "
-                  f"({row['total_time_s']}s, {row['input_tokens']}+{row['output_tokens']} tok)")
+                  f"({row['total_time_s']}s, {row['input_tokens']}+{row['output_tokens']} tok"
+                  f"{', HIT TOKEN LIMIT' if gen['hit_token_limit'] else ''})")
     summary = summarize(rows, settings)
     (out / f"{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))

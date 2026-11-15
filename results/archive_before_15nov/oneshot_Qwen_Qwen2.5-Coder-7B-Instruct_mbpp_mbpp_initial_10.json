@@ -1,0 +1,72 @@
+{
+  "strategy": "A_oneshot",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 10,
+  "solved": 8,
+  "pass@1": 0.8,
+  "total_exec_time_s": 0.487,
+  "avg_exec_time_s": 0.049,
+  "total_gen_time_s": 20.933,
+  "total_input_tokens": 854,
+  "total_output_tokens": 835,
+  "tokens_per_solved_task": 211.1,
+  "status_counts": {
+    "passed": 8,
+    "test_failure": 2
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 4,
+      "solved": 3,
+      "pass@1": 0.75,
+      "total_exec_time_s": 0.194,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 4.827,
+      "total_input_tokens": 315,
+      "total_output_tokens": 175,
+      "tokens_per_solved_task": 163.3,
+      "status_counts": {
+        "passed": 3,
+        "test_failure": 1
+      }
+    },
+    "Medium": {
+      "tasks": 3,
+      "solved": 2,
+      "pass@1": 0.6667,
+      "total_exec_time_s": 0.146,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 4.249,
+      "total_input_tokens": 301,
+      "total_output_tokens": 174,
+      "tokens_per_solved_task": 237.5,
+      "status_counts": {
+        "passed": 2,
+        "test_failure": 1
+      }
+    },
+    "Hard": {
+      "tasks": 3,
+      "solved": 3,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.147,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 11.857,
+      "total_input_tokens": 238,
+      "total_output_tokens": 486,
+      "tokens_per_solved_task": 241.3,
+      "status_counts": {
+        "passed": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "data": "Dataset/mbpp_initial_10.jsonl",
+    "limit": null
+  }
+}

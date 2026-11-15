@@ -13,15 +13,27 @@ Per task:
      in the same isolated process as Strategy A (time + memory limits).
      If it fails, the feedback says what was expected and what the code returned.
   4. If 2 or 3 failed: send task + previous code + feedback to the same LLM -> new code -> back to 2.
-     Stop when the dev test passes, or after --max-repairs repairs (default 3), or when the model
+     Stop when the dev test passes, or after --max-iterations LLM calls (default 5 = 1 first try + 4 repairs),
+     or when the model
      writes the same code again: with greedy decoding the next prompt would then be identical,
      so the next answer would be identical too. Stopping there cannot change the result, it only saves cost.
-  5. Final evaluation: the last code is run against ALL 3 tests (same check as Strategy A),
-     so Pass@1 is directly comparable with A. Tests 2 and 3 are never shown to the model.
+  5. Final evaluation: the last code is run against ALL 3 tests (same check as Strategy A).
+     Tests 2 and 3 are never shown to the model. The final result is reported as
+     final_success_rate (= solve rate), not pass@1, because B may call the LLM several times.
 
-Output (results/):  feedback_n<k>_<model>_<dataset>_<data file>.csv / .json / _code.jsonl
+Code extraction and cleaning are the same as in Strategy A (baseline_oneshot.extract_code / remove_model_tests).
+
+Measurements per task (same columns as A, plus B-only columns):
+  llm_calls = 1 initial + repair_calls;  tokens and generation time are split into initial and repair parts.
+  eval_exec_time_s     = final evaluation run on all tests (identical procedure in A and B)
+  feedback_exec_time_s = the extra dev-test runs that B needs to create feedback
+  The diagnostic run of attempt 1 on all tests (first_status, to compare with A) is NOT counted in any time.
+_code.jsonl keeps, for every attempt: full rendered prompt, raw answer, extracted + cleaned code,
+compile result, dev-test result, feedback, tokens, times, token-limit flag.
+
+Output (results/):  feedback_it<k>_<model>_<dataset>_<data file>.csv / .json / _code.jsonl
 Extra CSV columns: first_status (attempt 1 on all tests = Strategy A result), dev_passed,
-stop_reason (dev_test_passed / repeated_code / max_repairs_reached).
+stop_reason (dev_test_passed / repeated_code / max_iterations_reached).
 
 Needs src/baseline_oneshot.py next to this file.
 
@@ -66,7 +78,7 @@ def load_tasks(dataset, data_file):
     return tasks
 
 
-def dev_check_code(test):
+def make_dev_test(test):
     """Turn `assert f(x) == y` into a check that also reports what the code returned."""
     try:
         node = ast.parse(test).body[0]
@@ -82,8 +94,9 @@ def dev_check_code(test):
     return test + "\n"  # other test shapes (e.g. math.isclose): plain assert
 
 
-def compile_check(code):
-    """Python's own compiler, the same step py_compile does. Nothing is executed."""
+def run_compiler(code):
+    """COMPILER: Python's own compiler, the same step py_compile does. Nothing is executed.
+    Returns None if the code compiles, else the error message with the line number."""
     try:
         compile(code, "solution.py", "exec")
         return None
@@ -91,25 +104,26 @@ def compile_check(code):
         return f"{type(e).__name__}: {e.msg} (line {e.lineno})"
 
 
-def check(task, code, timeout):
-    """Compile, then run the dev test in the isolated process. Returns (ok, feedback, exec_time)."""
+def run_tester(task, code, timeout):
+    """TESTER: first the compiler, then the dev test (test 1) in the isolated process.
+    Returns (ok, feedback, exec_time, stage) with stage = no_code / compile_error / dev_<status>."""
     if not code.strip():
-        return False, "Your reply contained no Python code.", 0.0
-    err = compile_check(code)
+        return False, "Your reply contained no Python code.", 0.0, "no_code"
+    err = run_compiler(code)
     if err:
-        return False, err, 0.0
-    program = code + "\n\n" + task["setup"] + "\n" + dev_check_code(task["dev_test"])
-    status, err, dt = base.run_program(program, timeout)
+        return False, err, 0.0, "compile_error"
+    program = code + "\n\n" + task["setup"] + "\n" + make_dev_test(task["dev_test"])
+    status, err, dt = base.run_code(program, timeout)
     if status == "passed":
-        return True, "", dt
+        return True, "", dt, "dev_passed"
     if status == "timeout":
         err = f"Timeout: the code did not finish in {timeout} seconds ({err})."
-    return False, err, dt
+    return False, err, dt, "dev_" + status
 
 
-def build_repair_prompt(task, code, feedback):
+def make_fix_prompt(task, code, feedback):
     return (
-        base.build_user_prompt(task)
+        base.make_prompt(task)
         + "\n\nYour previous solution:\n```python\n" + code + "\n```\n"
         + "We ran it and got this error:\n" + feedback + "\n\n"
         + "Fix the code. Reply with the complete corrected Python code in a single ```python code block."
@@ -119,28 +133,37 @@ def build_repair_prompt(task, code, feedback):
 # --------------------------------------------------------------------------- #
 # One task
 # --------------------------------------------------------------------------- #
-def run_task(task, backend, model_label, timeout, max_repairs):
-    t_gen = t_exec = 0.0
-    n_in = n_out = 0
+def run_task(task, backend, model_label, timeout, max_iterations):
+    gen_t = [0.0, 0.0]          # [initial, repair] generation time
+    tok_in, tok_out = [0, 0], [0, 0]
+    t_feedback = 0.0
     attempts = []
-    prompt = base.build_user_prompt(task)
+    prompt = base.make_prompt(task)
     code = feedback = first = ""
-    dev_ok, stop = False, "max_repairs_reached"
-    for gen_no in range(max_repairs + 1):
+    dev_ok, stop = False, "max_iterations_reached"
+    limit = getattr(backend, "max_new_tokens", 10**9)
+    for gen_no in range(max_iterations):  # one iteration = one LLM call (0 = first try, 1.. = repairs)
         if gen_no > 0:
-            prompt = build_repair_prompt(task, code, feedback)
+            prompt = make_fix_prompt(task, code, feedback)
+        k = 0 if gen_no == 0 else 1
         t0 = time.perf_counter()
         text, i, o = backend.generate(base.SYSTEM_PROMPT, prompt, dict(task, repair=gen_no))
         g = time.perf_counter() - t0
-        t_gen += g
-        n_in, n_out = n_in + i, n_out + o
-        code = base.extract_code(text)
-        dev_ok, feedback, dt = check(task, code, timeout)
-        t_exec += dt
-        attempts.append({"code": code, "dev_passed": dev_ok, "feedback": feedback, "raw_output": text,
-                         "input_tokens": i, "output_tokens": o, "gen_time_s": round(g, 3)})
-        if gen_no == 0:  # attempt 1 on all tests = what Strategy A would score (not counted in time)
-            first = base.run_program(base.build_program(task, code), timeout)[0] if code.strip() else "no_code"
+        gen_t[k] += g
+        tok_in[k] += i
+        tok_out[k] += o
+        extracted = base.extract_code(text)
+        code = base.remove_model_tests(extracted)
+        dev_ok, feedback, dt, stage = run_tester(task, code, timeout)
+        t_feedback += dt
+        attempts.append({"attempt": gen_no, "kind": "initial" if gen_no == 0 else "repair",
+                         "prompt_rendered": getattr(backend, "last_prompt", "") or prompt,
+                         "raw_output": text, "extracted_code": extracted, "code": code,
+                         "check_stage": stage, "dev_passed": dev_ok, "feedback": feedback,
+                         "input_tokens": i, "output_tokens": o, "hit_token_limit": o >= limit,
+                         "gen_time_s": round(g, 3), "feedback_exec_time_s": round(dt, 3)})
+        if gen_no == 0:  # attempt 1 on all tests = what Strategy A would score (diagnostic, not timed)
+            first = base.run_code(base.add_tests_to_code(task, code), timeout)[0] if code.strip() else "no_code"
         if dev_ok:
             stop = "dev_test_passed"
             break
@@ -148,34 +171,41 @@ def run_task(task, backend, model_label, timeout, max_repairs):
             stop = "repeated_code"  # same code + same error -> next prompt and answer would be identical
             break
 
-    # final evaluation on all 3 tests (same as Strategy A)
+    # final evaluation on all 3 tests (same procedure as Strategy A)
     if code.strip():
-        status, err, dt = base.run_program(base.build_program(task, code), timeout)
-        t_exec += dt
+        status, err, t_eval = base.run_code(base.add_tests_to_code(task, code), timeout)
     else:
-        status, err = "no_code", "empty model output"
+        status, err, t_eval = "no_code", "empty model output", 0.0
+    t_gen = sum(gen_t)
+    t_exec = t_eval + t_feedback
     row = {
         "task_id": task["task_id"], "difficulty": task.get("difficulty", ""),
         "model": model_label, "strategy": STRATEGY,
         "solved": int(status == "passed"), "status": status, "error": err,
-        "iterations": len(attempts),  # number of generations (1 = no repair needed)
-        "input_tokens": n_in, "output_tokens": n_out,
-        "gen_time_s": round(t_gen, 3), "exec_time_s": round(t_exec, 3),
-        "total_time_s": round(t_gen + t_exec, 3),
+        "llm_calls": len(attempts), "repair_calls": len(attempts) - 1,
+        "input_tokens": sum(tok_in), "output_tokens": sum(tok_out),
+        "initial_input_tokens": tok_in[0], "initial_output_tokens": tok_out[0],
+        "repair_input_tokens": tok_in[1], "repair_output_tokens": tok_out[1],
+        "gen_time_s": round(t_gen, 3), "initial_gen_time_s": round(gen_t[0], 3),
+        "repair_gen_time_s": round(gen_t[1], 3),
+        "eval_exec_time_s": round(t_eval, 3), "feedback_exec_time_s": round(t_feedback, 3),
+        "exec_time_s": round(t_exec, 3), "total_time_s": round(t_gen + t_exec, 3),
         "first_status": first, "dev_passed": int(dev_ok),
         "stop_reason": stop,
     }
-    return row, {"task_id": task["task_id"], "status": status, "attempts": attempts}
+    return row, {"task_id": task["task_id"], "status": status, "error": err, "stop_reason": stop,
+                 "attempts": attempts}
 
 
 def summarize(rows, settings=None):
     s = base.summarize(rows, settings)
     s["strategy"] = STRATEGY
+    s.pop("pass@1", None)  # iterative strategy: report the final success rate instead
+    s["final_success_rate"] = s["solve_rate"]
     n = len(rows)
     first_pass = sum(r["first_status"] == "passed" for r in rows)
     s["first_attempt_pass@1"] = round(first_pass / n, 4) if n else None  # should equal Strategy A
     s["fixed_by_repair"] = sum(r["solved"] for r in rows) - first_pass
-    s["avg_iterations"] = round(sum(r["iterations"] for r in rows) / n, 3) if n else None
     s["stop_reason_counts"] = dict(Counter(r["stop_reason"] for r in rows))
     s["dev_passed_but_hidden_failed"] = sum(1 for r in rows if int(r["dev_passed"]) and not r["solved"])
     s["first_status_counts"] = dict(Counter(r["first_status"] for r in rows))
@@ -213,7 +243,7 @@ def selftest():
         "fixed_crash": ([crash, ok_code], (1, 2, "runtime_error", "dev_test_passed")),
         "repeats_code": ([bad_logic], (0, 2, "test_failure", "repeated_code")),
         "never_fixed": ([bad_logic, crash, bad_syntax, "def add(a, b):\n    return a * b"],
-                        (0, 4, "test_failure", "max_repairs_reached")),
+                        (0, 4, "test_failure", "max_iterations_reached")),
         "dev_only": ([only_dev], (0, 1, "test_failure", "dev_test_passed")),
     }
     tasks = []
@@ -222,14 +252,14 @@ def selftest():
         t["task_id"] = k
         tasks.append(t)
     mock = ScriptedMock({k: v[0] for k, v in cases.items()})
-    rows = [run_task(t, mock, "mock", timeout=3, max_repairs=3)[0] for t in tasks]
+    rows = [run_task(t, mock, "mock", timeout=3, max_iterations=4)[0] for t in tasks]
     ok = True
     for r in rows:
         want = cases[r["task_id"]][1]
-        got = (r["solved"], r["iterations"], r["first_status"], r["stop_reason"])
+        got = (r["solved"], r["llm_calls"], r["first_status"], r["stop_reason"])
         ok &= got == want
         print(f"  {'OK ' if got == want else 'FAIL'} {r['task_id']:<13} solved={r['solved']} "
-              f"iter={r['iterations']} first={r['first_status']:<13} stop={r['stop_reason']}")
+              f"calls={r['llm_calls']} first={r['first_status']:<13} stop={r['stop_reason']}")
     repairs = [p for p in mock.prompts if "Your previous solution" in p]
     no_leak = all("add(10, 5)" not in p and "add(-1, 1)" not in p for p in mock.prompts)
     detail = any("expected 3, got -1" in p for p in repairs)
@@ -239,6 +269,18 @@ def selftest():
                        ("compiler feedback has error + line", syntax)]:
         ok &= good
         print(f"  {'OK ' if good else 'FAIL'} {name}")
+    # model repeats old code first, corrected code second; and adds its own (wrong) assert
+    t = dict(tasks[0], task_id="echo_then_fix")
+    m2 = ScriptedMock({"echo_then_fix": [bad_logic + "\nassert add(1, 2) == 99",
+                                         bad_logic + "\n```\nFixed:\n```python\n" + ok_code]})
+    r2, g2 = run_task(t, m2, "mock", timeout=3, max_iterations=4)
+    good = (r2["solved"], r2["llm_calls"]) == (1, 2) and "expected 3, got -1" in g2["attempts"][0]["feedback"]
+    ok &= good
+    print(f"  {'OK ' if good else 'FAIL'} corrected (last) block used; model's own assert ignored -> real feedback")
+    times = all(abs(r["exec_time_s"] - r["eval_exec_time_s"] - r["feedback_exec_time_s"]) < 0.002 and
+                r["repair_calls"] == r["llm_calls"] - 1 for r in rows)
+    ok &= times
+    print(f"  {'OK ' if times else 'FAIL'} exec = eval + feedback, repair_calls = llm_calls - 1")
     print("summary:", json.dumps(summarize(rows)))
     print("SELFTEST PASSED" if ok else "SELFTEST FAILED")
     return 0 if ok else 1
@@ -261,7 +303,8 @@ def main():
     ap.add_argument("--dataset", choices=["mbpp"], default="mbpp")
     ap.add_argument("--data-file", help="team dataset, e.g. Dataset/mbpp_initial_10.jsonl")
     ap.add_argument("--limit", type=int)
-    ap.add_argument("--max-repairs", type=int, default=3, help="max number of repair rounds (default 3)")
+    ap.add_argument("--max-iterations", type=int, default=5,
+                    help="max LLM calls per task: 1 first try + repairs (default 5)")
     ap.add_argument("--timeout", type=int, default=10)
     ap.add_argument("--mem-mb", type=int, default=1024)
     ap.add_argument("--max-new-tokens", type=int, default=512, help="keep identical to Strategy A")
@@ -289,12 +332,15 @@ def main():
     label = a.model + (f"@{a.quant}" if a.quant else "")
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"feedback_n{a.max_repairs}_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
+    stem = f"feedback_it{a.max_iterations}_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
     csv_path, code_path = out / f"{stem}.csv", out / f"{stem}_code.jsonl"
-    settings = {"max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
-                "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "max_repairs": a.max_repairs,
+    settings = {"model": a.model, "max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
+                "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "remote_code": not a.no_remote_code,
+                "max_iterations": a.max_iterations,
                 "feedback": "compiler + dev test (test 1, shown in prompt)",
-                "final_tests": "all 3 tests", "data": a.data_file}
+                "final_tests": "all 3 tests", "data": a.data_file,
+                "code_extraction": "last python block with a function; model's own top-level test code removed",
+                "environment": base.env_info(backend)}
 
     rows = read_rows(csv_path) if a.resume and csv_path.exists() else []
     if rows:
@@ -310,15 +356,16 @@ def main():
         for i, task in enumerate(tasks, 1):
             if task["task_id"] in done:
                 continue
-            row, gen = run_task(task, backend, label, a.timeout, a.max_repairs)
+            row, gen = run_task(task, backend, label, a.timeout, a.max_iterations)
             rows.append(row)
             w.writerow(row)
             fh.flush()
-            cf.write(json.dumps(gen) + "\n")
+            cf.write(json.dumps(gen, ensure_ascii=False) + "\n")
             cf.flush()
+            hit = any(x["hit_token_limit"] for x in gen["attempts"])
             print(f"[{i}/{len(tasks)}] {row['task_id']} ({row['difficulty']}): {row['first_status']} -> "
-                  f"{row['status']}  iter={row['iterations']}  {row['total_time_s']}s  "
-                  f"{row['input_tokens']}+{row['output_tokens']} tok")
+                  f"{row['status']}  calls={row['llm_calls']} ({row['stop_reason']})  {row['total_time_s']}s  "
+                  f"{row['input_tokens']}+{row['output_tokens']} tok{'  HIT TOKEN LIMIT' if hit else ''}")
     summary = summarize(rows, settings)
     (out / f"{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
