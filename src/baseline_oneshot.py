@@ -48,6 +48,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -250,24 +251,110 @@ def classify(last_line):
 # Runs inside the child process: sets its own limits, then executes the program.
 # (Setting limits in the child itself is safe even when the parent has many threads, e.g. torch.)
 _LAUNCHER = r"""
-import resource, runpy, sys
+import os, resource, runpy, sys
 mem, cpu, fsize, path = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 for lim, val in ((resource.RLIMIT_AS, mem), (resource.RLIMIT_CPU, cpu), (resource.RLIMIT_FSIZE, fsize)):
     try:
         resource.setrlimit(lim, (val, val))
     except (ValueError, OSError):
         pass
+sys.dont_write_bytecode = True
+
+# Audit hook (PEP 578): runs before every sensitive action of the generated code and cannot be removed.
+# Writing/deleting/renaming is allowed only inside this run's temp folder; no new processes,
+# no network, no ctypes (which could bypass the hook).
+ALLOW = os.path.realpath(os.path.dirname(path))
+WRITE = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+FILE_EVENTS = {"os.remove", "os.rmdir", "os.mkdir", "os.rename", "os.replace", "os.chmod", "os.chown",
+               "os.truncate", "os.utime", "os.symlink", "os.link", "shutil.rmtree", "shutil.move",
+               "shutil.copyfile", "shutil.copytree"}
+BLOCKED = {"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork",
+           "os.forkpty", "pty.spawn", "os.kill", "os.killpg", "socket.connect", "socket.bind",
+           "socket.sendto", "socket.sendmsg", "socket.getaddrinfo", "urllib.Request", "ctypes.dlopen"}
+
+def inside(p):
+    try:
+        rp = os.path.realpath(os.fsdecode(p))
+    except Exception:
+        return False
+    return rp == ALLOW or rp.startswith(ALLOW + os.sep)
+
+def hook(event, args):
+    if event == "open":
+        p, mode, flags = (tuple(args) + (None, None, None))[:3]
+        if p is None or isinstance(p, int):
+            return
+        writing = (isinstance(mode, str) and any(c in mode for c in "wax+")) or (isinstance(flags, int) and flags & WRITE)
+        if writing and not inside(p):
+            raise PermissionError(f"sandbox: writing outside the temp folder is blocked ({p})")
+    elif event in FILE_EVENTS:
+        if not all(inside(a) for a in args if isinstance(a, (str, bytes, os.PathLike))):
+            raise PermissionError(f"sandbox: {event} outside the temp folder is blocked")
+    elif event in BLOCKED or (event == "import" and args and args[0] in ("ctypes", "_ctypes", "cffi")):
+        raise PermissionError(f"sandbox: {event} is blocked")
+
+sys.addaudithook(hook)
 sys.argv = [path]
 runpy.run_path(path, run_name="__main__")
 """
 
 
+# Isolation of generated code, two layers:
+# 1) Linux namespaces via `unshare` (no admin rights needed; the same kernel feature Docker uses).
+#    The strongest level this machine allows is chosen once:
+#      net+pid+ro-home : no network, own process tree, home folder re-mounted read-only
+#      net+pid         : no network, own process tree   (if mount namespaces are not allowed)
+#      net             : no network                     (KTU JupyterHub: only this level is allowed)
+# 2) Audit hook inside the Python process (see _LAUNCHER, always on): no writing / deleting / renaming
+#    outside the run's temp folder in /tmp, no new processes, no sockets, no ctypes.
+# Plus the time / CPU / memory / file-size limits.
+_HOME_RO = 'mount --bind "$1" "$1" && mount -o remount,bind,ro "$1" && shift && exec "$@"'
+_SANDBOX_LEVELS = [
+    ("net+pid+ro-home", ["--user", "--map-root-user", "--net", "--mount", "--pid", "--fork", "--kill-child",
+                         "sh", "-c", _HOME_RO, "sh", "{home}"]),
+    ("net+pid", ["--user", "--map-root-user", "--net", "--pid", "--fork", "--kill-child"]),
+    ("net", ["--user", "--map-root-user", "--net"]),
+]
+_SANDBOX = None  # decided once: (level name, command prefix)
+
+
+def sandbox_prefix():
+    """Return the unshare prefix for the strongest namespace level that works here ([] if none)."""
+    global _SANDBOX
+    if _SANDBOX is None:
+        _SANDBOX = ("none", [])
+        exe = shutil.which("unshare")
+        skip = os.environ.get("SANDBOX_SKIP", "").split(",")  # for testing, e.g. SANDBOX_SKIP=net+pid+ro-home
+        if exe and os.environ.get("NO_SANDBOX") != "1":
+            for name, flags in _SANDBOX_LEVELS:
+                if name in skip:
+                    continue
+                prefix = [exe] + [f.replace("{home}", str(Path.home())) for f in flags]
+                try:
+                    if subprocess.run(prefix + ["true"], capture_output=True, timeout=20).returncode == 0:
+                        _SANDBOX = (name, prefix)
+                        break
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        if not _SANDBOX[1]:
+            print("WARNING: namespace sandbox (unshare) not available - only the audit hook and limits are used",
+                  file=sys.stderr)
+    return _SANDBOX[1]
+
+
+def sandbox_info():
+    sandbox_prefix()
+    return (f"namespaces: {_SANDBOX[0]}; audit hook: no writes/deletes outside the temp folder, "
+            "no new processes, no sockets, no ctypes; limits: time, CPU, memory, file size")
+
+
 def run_code(program, timeout):
-    """Run generated code + tests in a separate, isolated Python process with time and resource limits."""
-    with tempfile.TemporaryDirectory() as d:
+    """Run generated code + tests in a separate, isolated Python process with time and resource limits,
+    inside the sandbox (no network, read-only home) when available."""
+    with tempfile.TemporaryDirectory(dir="/tmp" if os.path.isdir("/tmp") else None) as d:
         path = Path(d) / "prog.py"
         path.write_text(program, encoding="utf-8")
-        cmd = [sys.executable, "-I", "-c", _LAUNCHER,
+        cmd = sandbox_prefix() + [sys.executable, "-I", "-c", _LAUNCHER,
                str(LIMITS["mem_mb"] * 2**20), str(timeout + 1), str(LIMITS["fsize_mb"] * 2**20), str(path)]
         t0 = time.perf_counter()
         p = subprocess.Popen(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -284,7 +371,7 @@ def run_code(program, timeout):
         dt = time.perf_counter() - t0
     if p.returncode == 0:
         return "passed", "", dt
-    if p.returncode == -signal.SIGXCPU:
+    if p.returncode in (-signal.SIGXCPU, 128 + signal.SIGXCPU):
         return "timeout", "CPU time limit exceeded", dt
     lines = stderr.strip().splitlines()
     last = lines[-1] if lines else f"killed (exit code {p.returncode})"
@@ -380,7 +467,7 @@ def selftest():
         "memory_hog": ("def f(a, b):\n    x = bytearray(4 * 2**30)\n    return a + b", "runtime_error"),
         "child_process": ("import subprocess, sys\n"
                           "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-                          "def f(a, b):\n    while True:\n        pass", "timeout"),
+                          "def f(a, b):\n    while True:\n        pass", "timeout"),  # top-level Popen removed by remove_model_tests
     }
     tasks = [{"task_id": k, "prompt": stub, "entry_point": "f", "tests": tests, "mock_output": v[0]}
              for k, v in cases.items()]
@@ -404,6 +491,27 @@ def selftest():
     ok &= good
     print(f"  {'OK ' if good else 'FAIL'} team dataset row  -> {r['status']} ({r['difficulty']}, code saved)")
 
+    # sandbox: no network, home folder read-only (only checked when the sandbox is available)
+    tmp_task = {"task_id": "sbx", "prompt": stub, "entry_point": "f", "tests": tests}
+    victim = Path.home() / "sandbox_delete_test.txt"
+    victim.write_text("must survive")
+    fn = "def f(a, b):\n    return a + b"
+    checks = [
+        ("network blocked", "import socket\nsocket.create_connection(('1.1.1.1', 80), timeout=3)\n" + fn),
+        ("no writing in home", f"open({str(Path.home() / 'sandbox_write_test.txt')!r}, 'w').write('x')\n" + fn),
+        ("no deleting in home", f"import os\nos.remove({str(victim)!r})\n" + fn),
+        ("no shell commands", "import os\nos.system('echo hacked')\n" + fn),
+        ("no ctypes", "import ctypes\n" + fn),
+    ]
+    for name, code in checks:
+        st, err, _ = run_code(add_tests_to_code(tmp_task, code), 5)
+        good = st == "runtime_error" and any(w in err for w in ("sandbox", "unreachable", "Read-only", "Errno"))
+        ok &= good
+        print(f"  {'OK ' if good else 'FAIL'} sandbox: {name:<20} -> {st}  {err[:70]}")
+    survived = victim.exists()
+    victim.unlink(missing_ok=True)
+    ok &= survived
+    print(f"  {'OK ' if survived else 'FAIL'} sandbox: test file in home still exists | {sandbox_info()[:40]}")
     # extraction: last block with a function wins; cleaning removes the model's own test code
     raw = ("```python\ndef f(a, b):\n    return a - b\n```\nCorrected:\n```python\nimport math\n"
            "def f(a, b):\n    return a + b\n\nprint(f(1, 2))\nassert f(1, 2) == 4\n```")
@@ -439,7 +547,7 @@ def _read_rows(csv_path):
 def env_info(backend=None):
     """Exact configuration and hardware, saved in the summary JSON."""
     import platform
-    info = {"python": platform.python_version(), "host": platform.node(),
+    info = {"python": platform.python_version(), "host": platform.node(), "code_execution": sandbox_info(),
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", "(not set: all GPUs)")}
     for mod in ("torch", "transformers", "bitsandbytes", "accelerate"):
         try:
