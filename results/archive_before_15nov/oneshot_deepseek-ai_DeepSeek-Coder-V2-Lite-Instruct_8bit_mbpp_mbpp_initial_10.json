@@ -1,0 +1,69 @@
+{
+  "strategy": "A_oneshot",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit",
+  "tasks": 10,
+  "solved": 10,
+  "pass@1": 1.0,
+  "total_exec_time_s": 0.489,
+  "avg_exec_time_s": 0.049,
+  "total_gen_time_s": 351.269,
+  "total_input_tokens": 849,
+  "total_output_tokens": 958,
+  "tokens_per_solved_task": 180.7,
+  "status_counts": {
+    "passed": 10
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 4,
+      "solved": 4,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.196,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 86.375,
+      "total_input_tokens": 314,
+      "total_output_tokens": 222,
+      "tokens_per_solved_task": 134.0,
+      "status_counts": {
+        "passed": 4
+      }
+    },
+    "Medium": {
+      "tasks": 3,
+      "solved": 3,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.145,
+      "avg_exec_time_s": 0.048,
+      "total_gen_time_s": 118.029,
+      "total_input_tokens": 299,
+      "total_output_tokens": 325,
+      "tokens_per_solved_task": 208.0,
+      "status_counts": {
+        "passed": 3
+      }
+    },
+    "Hard": {
+      "tasks": 3,
+      "solved": 3,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.148,
+      "avg_exec_time_s": 0.049,
+      "total_gen_time_s": 146.865,
+      "total_input_tokens": 236,
+      "total_output_tokens": 411,
+      "tokens_per_solved_task": 215.7,
+      "status_counts": {
+        "passed": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "8bit",
+    "data": "Dataset/mbpp_initial_10.jsonl",
+    "limit": null
+  }
+}

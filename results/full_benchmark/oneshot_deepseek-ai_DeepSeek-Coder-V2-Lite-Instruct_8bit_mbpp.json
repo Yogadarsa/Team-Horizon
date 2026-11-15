@@ -1,0 +1,17 @@
+{
+  "strategy": "A_oneshot",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit",
+  "tasks": 500,
+  "solved": 311,
+  "pass@1": 0.622,
+  "avg_total_time_s": 38.84,
+  "total_input_tokens": 45935,
+  "total_output_tokens": 52950,
+  "tokens_per_solved_task": 318.0,
+  "status_counts": {
+    "passed": 311,
+    "test_failure": 152,
+    "runtime_error": 34,
+    "syntax_error": 3
+  }
+}

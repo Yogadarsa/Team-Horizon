@@ -1,0 +1,11 @@
+task_id,difficulty,model,strategy,solved,status,error,iterations,input_tokens,output_tokens,gen_time_s,exec_time_s,total_time_s,first_status,dev_passed,stop_reason
+MBPP/17,Easy,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,70,45,18.773,0.097,18.87,passed,1,dev_test_passed
+MBPP/62,Easy,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,80,51,19.943,0.096,20.039,passed,1,dev_test_passed
+MBPP/79,Easy,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,69,43,17.133,0.094,17.228,passed,1,dev_test_passed
+MBPP/82,Easy,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,95,83,30.85,0.098,30.948,passed,1,dev_test_passed
+MBPP/68,Medium,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,77,101,36.463,0.096,36.559,passed,1,dev_test_passed
+MBPP/69,Medium,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,80,104,37.871,0.095,37.966,passed,1,dev_test_passed
+MBPP/88,Medium,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,142,120,44.034,0.097,44.131,passed,1,dev_test_passed
+MBPP/61,Hard,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,79,114,41.12,0.095,41.216,passed,1,dev_test_passed
+MBPP/67,Hard,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,67,147,51.827,0.095,51.922,passed,1,dev_test_passed
+MBPP/463,Hard,deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit,B_feedback,1,passed,,1,90,150,53.153,0.096,53.249,passed,1,dev_test_passed

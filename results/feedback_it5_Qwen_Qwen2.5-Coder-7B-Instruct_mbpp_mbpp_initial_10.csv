@@ -1,0 +1,11 @@
+task_id,difficulty,model,strategy,solved,status,error,llm_calls,repair_calls,input_tokens,output_tokens,initial_input_tokens,initial_output_tokens,repair_input_tokens,repair_output_tokens,gen_time_s,initial_gen_time_s,repair_gen_time_s,eval_exec_time_s,feedback_exec_time_s,exec_time_s,total_time_s,first_status,dev_passed,stop_reason
+MBPP/17,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,71,38,71,38,0,0,1.493,1.493,0.0,0.048,0.048,0.096,1.589,passed,1,dev_test_passed
+MBPP/62,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,81,31,81,31,0,0,0.763,0.763,0.0,0.047,0.048,0.095,0.858,passed,1,dev_test_passed
+MBPP/79,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,2,1,203,76,70,54,133,22,1.875,1.326,0.549,0.048,0.098,0.147,2.021,test_failure,1,dev_test_passed
+MBPP/82,Easy,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,93,52,93,52,0,0,1.261,1.261,0.0,0.049,0.048,0.096,1.357,passed,1,dev_test_passed
+MBPP/68,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,80,94,80,94,0,0,2.284,2.284,0.0,0.048,0.049,0.097,2.381,passed,1,dev_test_passed
+MBPP/69,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,2,1,226,144,79,27,147,117,3.534,0.652,2.882,0.046,0.099,0.145,3.678,test_failure,1,dev_test_passed
+MBPP/88,Medium,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,142,53,142,53,0,0,1.314,1.314,0.0,0.048,0.049,0.097,1.411,passed,1,dev_test_passed
+MBPP/61,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,80,85,80,85,0,0,2.077,2.077,0.0,0.049,0.047,0.096,2.173,passed,1,dev_test_passed
+MBPP/67,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,68,128,68,128,0,0,3.127,3.127,0.0,0.047,0.048,0.096,3.222,passed,1,dev_test_passed
+MBPP/463,Hard,Qwen/Qwen2.5-Coder-7B-Instruct,B_feedback,1,passed,,1,0,90,273,90,273,0,0,6.664,6.664,0.0,0.049,0.049,0.098,6.761,passed,1,dev_test_passed

@@ -1,0 +1,149 @@
+{
+  "strategy": "B_feedback",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 30,
+  "solved": 27,
+  "solve_rate": 0.9,
+  "total_llm_calls": 36,
+  "total_repair_calls": 6,
+  "avg_llm_calls": 1.2,
+  "total_gen_time_s": 100.226,
+  "total_initial_gen_time_s": 87.726,
+  "total_repair_gen_time_s": 12.499,
+  "total_eval_exec_time_s": 1.449,
+  "total_feedback_exec_time_s": 1.739,
+  "total_exec_time_s": 3.186,
+  "avg_exec_time_s": 0.106,
+  "total_input_tokens": 3903,
+  "total_output_tokens": 3721,
+  "initial_input_tokens": 2733,
+  "initial_output_tokens": 3234,
+  "repair_input_tokens": 1170,
+  "repair_output_tokens": 487,
+  "tokens_per_solved_task": 282.4,
+  "status_counts": {
+    "passed": 27,
+    "test_failure": 3
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "solve_rate": 1.0,
+      "total_llm_calls": 11,
+      "total_repair_calls": 1,
+      "avg_llm_calls": 1.1,
+      "total_gen_time_s": 13.839,
+      "total_initial_gen_time_s": 13.285,
+      "total_repair_gen_time_s": 0.554,
+      "total_eval_exec_time_s": 0.468,
+      "total_feedback_exec_time_s": 0.523,
+      "total_exec_time_s": 0.989,
+      "avg_exec_time_s": 0.099,
+      "total_input_tokens": 866,
+      "total_output_tokens": 549,
+      "initial_input_tokens": 733,
+      "initial_output_tokens": 527,
+      "repair_input_tokens": 133,
+      "repair_output_tokens": 22,
+      "tokens_per_solved_task": 141.5,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 10,
+      "solve_rate": 1.0,
+      "total_llm_calls": 12,
+      "total_repair_calls": 2,
+      "avg_llm_calls": 1.2,
+      "total_gen_time_s": 41.589,
+      "total_initial_gen_time_s": 37.056,
+      "total_repair_gen_time_s": 4.532,
+      "total_eval_exec_time_s": 0.473,
+      "total_feedback_exec_time_s": 0.581,
+      "total_exec_time_s": 1.052,
+      "avg_exec_time_s": 0.105,
+      "total_input_tokens": 1595,
+      "total_output_tokens": 1320,
+      "initial_input_tokens": 1179,
+      "initial_output_tokens": 1159,
+      "repair_input_tokens": 416,
+      "repair_output_tokens": 161,
+      "tokens_per_solved_task": 291.5,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 7,
+      "solve_rate": 0.7,
+      "total_llm_calls": 13,
+      "total_repair_calls": 3,
+      "avg_llm_calls": 1.3,
+      "total_gen_time_s": 44.798,
+      "total_initial_gen_time_s": 37.385,
+      "total_repair_gen_time_s": 7.413,
+      "total_eval_exec_time_s": 0.508,
+      "total_feedback_exec_time_s": 0.635,
+      "total_exec_time_s": 1.145,
+      "avg_exec_time_s": 0.115,
+      "total_input_tokens": 1442,
+      "total_output_tokens": 1852,
+      "initial_input_tokens": 821,
+      "initial_output_tokens": 1548,
+      "repair_input_tokens": 621,
+      "repair_output_tokens": 304,
+      "tokens_per_solved_task": 470.6,
+      "status_counts": {
+        "passed": 7,
+        "test_failure": 3
+      }
+    }
+  },
+  "settings": {
+    "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "remote_code": true,
+    "max_iterations": 5,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl",
+    "code_extraction": "last python block with a function; model's own top-level test code removed",
+    "environment": {
+      "python": "3.13.14",
+      "host": "jupyter-ilkrza-ktu-lt---70392703",
+      "cuda_visible_devices": "2",
+      "torch": "2.11.0+cu128",
+      "transformers": "5.20.2",
+      "bitsandbytes": null,
+      "accelerate": "1.15.0",
+      "gpus": [
+        "NVIDIA A100-PCIE-40GB"
+      ],
+      "cuda": "12.8",
+      "model_revision": null,
+      "model_class": "Qwen2ForCausalLM",
+      "dtype": "torch.bfloat16",
+      "device_map": ""
+    }
+  },
+  "final_success_rate": 0.9,
+  "first_attempt_solve_rate": 0.8,
+  "fixed_by_repair": 3,
+  "stop_reason_counts": {
+    "dev_test_passed": 28,
+    "repeated_code": 2
+  },
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 24,
+    "test_failure": 6
+  }
+}

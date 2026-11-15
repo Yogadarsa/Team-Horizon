@@ -1,0 +1,151 @@
+{
+  "strategy": "B_feedback",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+  "tasks": 30,
+  "solved": 25,
+  "solve_rate": 0.8333,
+  "total_llm_calls": 40,
+  "total_repair_calls": 10,
+  "avg_llm_calls": 1.333,
+  "total_gen_time_s": 1929.209,
+  "total_initial_gen_time_s": 1229.231,
+  "total_repair_gen_time_s": 699.979,
+  "total_eval_exec_time_s": 1.491,
+  "total_feedback_exec_time_s": 2.031,
+  "total_exec_time_s": 3.527,
+  "avg_exec_time_s": 0.118,
+  "total_input_tokens": 5505,
+  "total_output_tokens": 6510,
+  "initial_input_tokens": 2722,
+  "initial_output_tokens": 3934,
+  "repair_input_tokens": 2783,
+  "repair_output_tokens": 2576,
+  "tokens_per_solved_task": 480.6,
+  "status_counts": {
+    "passed": 25,
+    "test_failure": 5
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "solve_rate": 1.0,
+      "total_llm_calls": 10,
+      "total_repair_calls": 0,
+      "avg_llm_calls": 1.0,
+      "total_gen_time_s": 182.315,
+      "total_initial_gen_time_s": 182.315,
+      "total_repair_gen_time_s": 0,
+      "total_eval_exec_time_s": 0.474,
+      "total_feedback_exec_time_s": 0.479,
+      "total_exec_time_s": 0.954,
+      "avg_exec_time_s": 0.095,
+      "total_input_tokens": 725,
+      "total_output_tokens": 496,
+      "initial_input_tokens": 725,
+      "initial_output_tokens": 496,
+      "repair_input_tokens": 0,
+      "repair_output_tokens": 0,
+      "tokens_per_solved_task": 122.1,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 9,
+      "solve_rate": 0.9,
+      "total_llm_calls": 11,
+      "total_repair_calls": 1,
+      "avg_llm_calls": 1.1,
+      "total_gen_time_s": 532.385,
+      "total_initial_gen_time_s": 472.846,
+      "total_repair_gen_time_s": 59.539,
+      "total_eval_exec_time_s": 0.521,
+      "total_feedback_exec_time_s": 0.594,
+      "total_exec_time_s": 1.117,
+      "avg_exec_time_s": 0.112,
+      "total_input_tokens": 1612,
+      "total_output_tokens": 1514,
+      "initial_input_tokens": 1179,
+      "initial_output_tokens": 1309,
+      "repair_input_tokens": 433,
+      "repair_output_tokens": 205,
+      "tokens_per_solved_task": 347.3,
+      "status_counts": {
+        "passed": 9,
+        "test_failure": 1
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 6,
+      "solve_rate": 0.6,
+      "total_llm_calls": 19,
+      "total_repair_calls": 9,
+      "avg_llm_calls": 1.9,
+      "total_gen_time_s": 1214.509,
+      "total_initial_gen_time_s": 574.07,
+      "total_repair_gen_time_s": 640.44,
+      "total_eval_exec_time_s": 0.496,
+      "total_feedback_exec_time_s": 0.958,
+      "total_exec_time_s": 1.456,
+      "avg_exec_time_s": 0.146,
+      "total_input_tokens": 3168,
+      "total_output_tokens": 4500,
+      "initial_input_tokens": 818,
+      "initial_output_tokens": 2129,
+      "repair_input_tokens": 2350,
+      "repair_output_tokens": 2371,
+      "tokens_per_solved_task": 1278.0,
+      "status_counts": {
+        "passed": 6,
+        "test_failure": 4
+      }
+    }
+  },
+  "settings": {
+    "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "remote_code": false,
+    "max_iterations": 5,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl",
+    "code_extraction": "last python block with a function; model's own top-level test code removed",
+    "environment": {
+      "python": "3.13.14",
+      "host": "jupyter-ilkrza-ktu-lt---70392703",
+      "cuda_visible_devices": "2",
+      "torch": "2.11.0+cu128",
+      "transformers": "4.57.6",
+      "bitsandbytes": "0.50.2",
+      "accelerate": "1.15.0",
+      "gpus": [
+        "NVIDIA A100-PCIE-40GB"
+      ],
+      "cuda": "12.8",
+      "model_revision": "e434a23f91ba5b4923cf6c9d9a238eb4a08e3a11",
+      "model_class": "DeepseekV2ForCausalLM",
+      "dtype": "torch.bfloat16",
+      "device_map": "{'model.embed_tokens': 0, 'model.layers.0': 0, 'model.layers.1': 0, 'model.layers.2': 0, 'model.layers.3': 0, 'model.layers.4': 0, 'model.layers.5': 0, 'model.layers.6': 0, 'model.layers.7': 0, 'model.layers.8': 0, 'model.layers.9': 0, 'model.layers.10': 0, 'model.layers.11': 0, 'model.layers.12': 0"
+    }
+  },
+  "final_success_rate": 0.8333,
+  "first_attempt_solve_rate": 0.8333,
+  "fixed_by_repair": 0,
+  "stop_reason_counts": {
+    "dev_test_passed": 26,
+    "repeated_code": 3,
+    "max_iterations_reached": 1
+  },
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 25,
+    "test_failure": 5
+  }
+}

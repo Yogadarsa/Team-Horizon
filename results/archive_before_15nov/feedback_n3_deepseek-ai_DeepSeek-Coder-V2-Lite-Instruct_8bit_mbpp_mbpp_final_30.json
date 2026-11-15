@@ -1,0 +1,89 @@
+{
+  "strategy": "B_feedback",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct@8bit",
+  "tasks": 30,
+  "solved": 25,
+  "pass@1": 0.8333,
+  "total_exec_time_s": 3.202,
+  "avg_exec_time_s": 0.107,
+  "total_gen_time_s": 1937.171,
+  "total_input_tokens": 4530,
+  "total_output_tokens": 5401,
+  "tokens_per_solved_task": 397.2,
+  "status_counts": {
+    "passed": 25,
+    "test_failure": 4,
+    "runtime_error": 1
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.967,
+      "avg_exec_time_s": 0.097,
+      "total_gen_time_s": 195.013,
+      "total_input_tokens": 725,
+      "total_output_tokens": 496,
+      "tokens_per_solved_task": 122.1,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 8,
+      "pass@1": 0.8,
+      "total_exec_time_s": 1.14,
+      "avg_exec_time_s": 0.114,
+      "total_gen_time_s": 750.415,
+      "total_input_tokens": 2460,
+      "total_output_tokens": 2097,
+      "tokens_per_solved_task": 569.6,
+      "status_counts": {
+        "passed": 8,
+        "test_failure": 1,
+        "runtime_error": 1
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 7,
+      "pass@1": 0.7,
+      "total_exec_time_s": 1.095,
+      "avg_exec_time_s": 0.11,
+      "total_gen_time_s": 991.743,
+      "total_input_tokens": 1345,
+      "total_output_tokens": 2808,
+      "tokens_per_solved_task": 593.3,
+      "status_counts": {
+        "passed": 7,
+        "test_failure": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "8bit",
+    "max_repairs": 3,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl"
+  },
+  "first_attempt_pass@1": 0.8333,
+  "fixed_by_repair": 0,
+  "avg_iterations": 1.167,
+  "stop_reason_counts": {
+    "dev_test_passed": 26,
+    "repeated_code": 4
+  },
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 25,
+    "test_failure": 4,
+    "runtime_error": 1
+  }
+}

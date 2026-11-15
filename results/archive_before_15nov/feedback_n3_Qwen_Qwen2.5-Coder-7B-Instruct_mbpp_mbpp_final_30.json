@@ -1,0 +1,86 @@
+{
+  "strategy": "B_feedback",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 30,
+  "solved": 27,
+  "pass@1": 0.9,
+  "total_exec_time_s": 3.216,
+  "avg_exec_time_s": 0.107,
+  "total_gen_time_s": 107.696,
+  "total_input_tokens": 4656,
+  "total_output_tokens": 4284,
+  "tokens_per_solved_task": 331.1,
+  "status_counts": {
+    "passed": 27,
+    "test_failure": 3
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "pass@1": 1.0,
+      "total_exec_time_s": 0.991,
+      "avg_exec_time_s": 0.099,
+      "total_gen_time_s": 14.988,
+      "total_input_tokens": 892,
+      "total_output_tokens": 581,
+      "tokens_per_solved_task": 147.3,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 10,
+      "pass@1": 1.0,
+      "total_exec_time_s": 1.051,
+      "avg_exec_time_s": 0.105,
+      "total_gen_time_s": 32.948,
+      "total_input_tokens": 1595,
+      "total_output_tokens": 1320,
+      "tokens_per_solved_task": 291.5,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 7,
+      "pass@1": 0.7,
+      "total_exec_time_s": 1.174,
+      "avg_exec_time_s": 0.117,
+      "total_gen_time_s": 59.76,
+      "total_input_tokens": 2169,
+      "total_output_tokens": 2383,
+      "tokens_per_solved_task": 650.3,
+      "status_counts": {
+        "passed": 7,
+        "test_failure": 3
+      }
+    }
+  },
+  "settings": {
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "max_repairs": 3,
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl"
+  },
+  "first_attempt_pass@1": 0.8,
+  "fixed_by_repair": 3,
+  "avg_iterations": 1.233,
+  "stop_reason_counts": {
+    "dev_test_passed": 28,
+    "repeated_code": 1,
+    "max_repairs_reached": 1
+  },
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 24,
+    "test_failure": 6
+  }
+}
