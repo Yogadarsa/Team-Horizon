@@ -7,13 +7,13 @@
   "total_llm_calls": 10,
   "total_repair_calls": 0,
   "avg_llm_calls": 1.0,
-  "total_gen_time_s": 121.91,
-  "total_initial_gen_time_s": 121.91,
+  "total_gen_time_s": 272.832,
+  "total_initial_gen_time_s": 272.832,
   "total_repair_gen_time_s": 0,
-  "total_eval_exec_time_s": 0.487,
+  "total_eval_exec_time_s": 0.551,
   "total_feedback_exec_time_s": 0,
-  "total_exec_time_s": 0.487,
-  "avg_exec_time_s": 0.049,
+  "total_exec_time_s": 0.551,
+  "avg_exec_time_s": 0.055,
   "total_input_tokens": 849,
   "total_output_tokens": 1113,
   "initial_input_tokens": 849,
@@ -21,6 +21,7 @@
   "repair_input_tokens": 0,
   "repair_output_tokens": 0,
   "tokens_per_solved_task": 196.2,
+  "ambiguous_extractions": 0,
   "status_counts": {
     "passed": 10
   },
@@ -32,13 +33,13 @@
       "total_llm_calls": 4,
       "total_repair_calls": 0,
       "avg_llm_calls": 1.0,
-      "total_gen_time_s": 25.632,
-      "total_initial_gen_time_s": 25.632,
+      "total_gen_time_s": 73.94,
+      "total_initial_gen_time_s": 73.94,
       "total_repair_gen_time_s": 0,
-      "total_eval_exec_time_s": 0.193,
+      "total_eval_exec_time_s": 0.229,
       "total_feedback_exec_time_s": 0,
-      "total_exec_time_s": 0.193,
-      "avg_exec_time_s": 0.048,
+      "total_exec_time_s": 0.229,
+      "avg_exec_time_s": 0.057,
       "total_input_tokens": 314,
       "total_output_tokens": 222,
       "initial_input_tokens": 314,
@@ -46,6 +47,7 @@
       "repair_input_tokens": 0,
       "repair_output_tokens": 0,
       "tokens_per_solved_task": 134.0,
+      "ambiguous_extractions": 0,
       "status_counts": {
         "passed": 4
       }
@@ -57,13 +59,13 @@
       "total_llm_calls": 3,
       "total_repair_calls": 0,
       "avg_llm_calls": 1.0,
-      "total_gen_time_s": 35.564,
-      "total_initial_gen_time_s": 35.564,
+      "total_gen_time_s": 75.249,
+      "total_initial_gen_time_s": 75.249,
       "total_repair_gen_time_s": 0,
-      "total_eval_exec_time_s": 0.147,
+      "total_eval_exec_time_s": 0.161,
       "total_feedback_exec_time_s": 0,
-      "total_exec_time_s": 0.147,
-      "avg_exec_time_s": 0.049,
+      "total_exec_time_s": 0.161,
+      "avg_exec_time_s": 0.054,
       "total_input_tokens": 299,
       "total_output_tokens": 325,
       "initial_input_tokens": 299,
@@ -71,6 +73,7 @@
       "repair_input_tokens": 0,
       "repair_output_tokens": 0,
       "tokens_per_solved_task": 208.0,
+      "ambiguous_extractions": 0,
       "status_counts": {
         "passed": 3
       }
@@ -82,13 +85,13 @@
       "total_llm_calls": 3,
       "total_repair_calls": 0,
       "avg_llm_calls": 1.0,
-      "total_gen_time_s": 60.714,
-      "total_initial_gen_time_s": 60.714,
+      "total_gen_time_s": 123.643,
+      "total_initial_gen_time_s": 123.643,
       "total_repair_gen_time_s": 0,
-      "total_eval_exec_time_s": 0.147,
+      "total_eval_exec_time_s": 0.161,
       "total_feedback_exec_time_s": 0,
-      "total_exec_time_s": 0.147,
-      "avg_exec_time_s": 0.049,
+      "total_exec_time_s": 0.161,
+      "avg_exec_time_s": 0.054,
       "total_input_tokens": 236,
       "total_output_tokens": 566,
       "initial_input_tokens": 236,
@@ -96,6 +99,7 @@
       "repair_input_tokens": 0,
       "repair_output_tokens": 0,
       "tokens_per_solved_task": 267.3,
+      "ambiguous_extractions": 0,
       "status_counts": {
         "passed": 3
       }
@@ -111,11 +115,12 @@
     "remote_code": false,
     "data": "Dataset/mbpp_initial_10.jsonl",
     "limit": null,
-    "code_extraction": "last python block with a function; model's own top-level test code removed",
+    "code_extraction": "Python code blocks that define the function called in the visible test; one or identical -> that block, several different -> the last one (flagged ambiguous); model's own top-level test code removed",
     "environment": {
       "python": "3.13.14",
       "host": "jupyter-ilkrza-ktu-lt---70392703",
-      "cuda_visible_devices": "2",
+      "code_execution": "namespaces: net+pid; audit hook: no writes/deletes outside the temp folder, no reading of the project folder (dataset, results) or private config, no new processes, no sockets, no ctypes; limits: time, CPU, memory, file size",
+      "cuda_visible_devices": "0",
       "torch": "2.11.0+cu128",
       "transformers": "4.57.6",
       "bitsandbytes": "0.50.2",
@@ -127,7 +132,7 @@
       "model_revision": "e434a23f91ba5b4923cf6c9d9a238eb4a08e3a11",
       "model_class": "DeepseekV2ForCausalLM",
       "dtype": "torch.bfloat16",
-      "device_map": "{'': 0}"
+      "device_map": "{'model.embed_tokens': 0, 'model.layers.0': 0, 'model.layers.1': 0, 'model.layers.2': 0, 'model.layers.3': 0, 'model.layers.4': 0, 'model.layers.5': 0, 'model.layers.6': 0, 'model.layers.7': 0, 'model.layers.8': 0, 'model.layers.9': 0, 'model.layers.10': 0, 'model.layers.11': 0, 'model.layers.12': 0"
     }
   }
 }

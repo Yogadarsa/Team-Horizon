@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-Re-run the FINAL evaluation of every saved solution inside the sandbox (no LLM needed)
-and compare with the results stored in the CSV files.
+Runs the final evaluation of all saved solutions again inside the sandbox and compares
+with the CSV results. If everything matches, the old runs are still valid.
 
-Why: the A and B runs were made before the sandbox was added. If every status is the same inside
-the sandbox, the existing results are valid and do not need to be generated again.
-
-    python src/reevaluate_sandbox.py            # all results/oneshot_* and results/feedback_it5_* files
+    python src/reevaluate_sandbox.py
 """
 import csv
 import glob
@@ -27,7 +24,7 @@ for f in glob.glob("Dataset/mbpp_*.jsonl"):
             tasks[t["task_id"]] = t
 
 total = same = 0
-for code_file in sorted(glob.glob("results/oneshot_*_code.jsonl") + glob.glob("results/feedback_it5_*_code.jsonl")):
+for code_file in sorted(glob.glob("results/oneshot_*_code.jsonl") + glob.glob("results/feedback_*_code.jsonl")):
     csv_file = code_file.replace("_code.jsonl", ".csv")
     stored = {r["task_id"]: r["status"] for r in csv.DictReader(open(csv_file, encoding="utf-8"))}
     diffs = []

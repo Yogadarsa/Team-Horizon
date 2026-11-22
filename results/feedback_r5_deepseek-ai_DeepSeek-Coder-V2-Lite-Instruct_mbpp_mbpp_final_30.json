@@ -1,0 +1,206 @@
+{
+  "strategy": "B_feedback",
+  "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+  "tasks": 30,
+  "solved": 25,
+  "solve_rate": 0.8333,
+  "total_llm_calls": 41,
+  "total_repair_calls": 11,
+  "avg_llm_calls": 1.367,
+  "total_gen_time_s": 1897.95,
+  "total_initial_gen_time_s": 1150.312,
+  "total_repair_gen_time_s": 747.637,
+  "total_eval_exec_time_s": 1.633,
+  "total_feedback_exec_time_s": 2.28,
+  "total_exec_time_s": 3.91,
+  "avg_exec_time_s": 0.13,
+  "total_input_tokens": 5749,
+  "total_output_tokens": 6635,
+  "initial_input_tokens": 2722,
+  "initial_output_tokens": 3934,
+  "repair_input_tokens": 3027,
+  "repair_output_tokens": 2701,
+  "tokens_per_solved_task": 495.4,
+  "ambiguous_extractions": 3,
+  "status_counts": {
+    "passed": 25,
+    "test_failure": 5
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "solved": 10,
+      "solve_rate": 1.0,
+      "total_llm_calls": 10,
+      "total_repair_calls": 0,
+      "avg_llm_calls": 1.0,
+      "total_gen_time_s": 147.934,
+      "total_initial_gen_time_s": 147.934,
+      "total_repair_gen_time_s": 0,
+      "total_eval_exec_time_s": 0.536,
+      "total_feedback_exec_time_s": 0.542,
+      "total_exec_time_s": 1.077,
+      "avg_exec_time_s": 0.108,
+      "total_input_tokens": 725,
+      "total_output_tokens": 496,
+      "initial_input_tokens": 725,
+      "initial_output_tokens": 496,
+      "repair_input_tokens": 0,
+      "repair_output_tokens": 0,
+      "tokens_per_solved_task": 122.1,
+      "ambiguous_extractions": 0,
+      "status_counts": {
+        "passed": 10
+      }
+    },
+    "Medium": {
+      "tasks": 10,
+      "solved": 9,
+      "solve_rate": 0.9,
+      "total_llm_calls": 11,
+      "total_repair_calls": 1,
+      "avg_llm_calls": 1.1,
+      "total_gen_time_s": 442.899,
+      "total_initial_gen_time_s": 385.591,
+      "total_repair_gen_time_s": 57.309,
+      "total_eval_exec_time_s": 0.543,
+      "total_feedback_exec_time_s": 0.614,
+      "total_exec_time_s": 1.155,
+      "avg_exec_time_s": 0.116,
+      "total_input_tokens": 1612,
+      "total_output_tokens": 1514,
+      "initial_input_tokens": 1179,
+      "initial_output_tokens": 1309,
+      "repair_input_tokens": 433,
+      "repair_output_tokens": 205,
+      "tokens_per_solved_task": 347.3,
+      "ambiguous_extractions": 0,
+      "status_counts": {
+        "passed": 9,
+        "test_failure": 1
+      }
+    },
+    "Hard": {
+      "tasks": 10,
+      "solved": 6,
+      "solve_rate": 0.6,
+      "total_llm_calls": 20,
+      "total_repair_calls": 10,
+      "avg_llm_calls": 2.0,
+      "total_gen_time_s": 1307.117,
+      "total_initial_gen_time_s": 616.787,
+      "total_repair_gen_time_s": 690.328,
+      "total_eval_exec_time_s": 0.554,
+      "total_feedback_exec_time_s": 1.124,
+      "total_exec_time_s": 1.678,
+      "avg_exec_time_s": 0.168,
+      "total_input_tokens": 3412,
+      "total_output_tokens": 4625,
+      "initial_input_tokens": 818,
+      "initial_output_tokens": 2129,
+      "repair_input_tokens": 2594,
+      "repair_output_tokens": 2496,
+      "tokens_per_solved_task": 1339.5,
+      "ambiguous_extractions": 3,
+      "status_counts": {
+        "passed": 6,
+        "test_failure": 4
+      }
+    }
+  },
+  "settings": {
+    "model": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "remote_code": false,
+    "max_repairs": 5,
+    "max_llm_calls": 6,
+    "stop_rules": "dev_test_passed, max_repairs_reached, repeated_code (same code + same error as before)",
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_final_30.jsonl",
+    "code_extraction": "Python code blocks that define the function called in the visible test; one or identical -> that block, several different -> the last one (flagged ambiguous); model's own top-level test code removed",
+    "environment": {
+      "python": "3.13.14",
+      "host": "jupyter-ilkrza-ktu-lt---70392703",
+      "code_execution": "namespaces: net+pid; audit hook: no writes/deletes outside the temp folder, no reading of the project folder (dataset, results) or private config, no new processes, no sockets, no ctypes; limits: time, CPU, memory, file size",
+      "cuda_visible_devices": "0",
+      "torch": "2.11.0+cu128",
+      "transformers": "4.57.6",
+      "bitsandbytes": "0.50.2",
+      "accelerate": "1.15.0",
+      "gpus": [
+        "NVIDIA A100-PCIE-40GB"
+      ],
+      "cuda": "12.8",
+      "model_revision": "e434a23f91ba5b4923cf6c9d9a238eb4a08e3a11",
+      "model_class": "DeepseekV2ForCausalLM",
+      "dtype": "torch.bfloat16",
+      "device_map": "{'model.embed_tokens': 0, 'model.layers.0': 0, 'model.layers.1': 0, 'model.layers.2': 0, 'model.layers.3': 0, 'model.layers.4': 0, 'model.layers.5': 0, 'model.layers.6': 0, 'model.layers.7': 0, 'model.layers.8': 0, 'model.layers.9': 0, 'model.layers.10': 0, 'model.layers.11': 0, 'model.layers.12': 0"
+    }
+  },
+  "final_success_rate": 0.8333,
+  "first_attempt_solve_rate": 0.8333,
+  "fixed_by_repair": 0,
+  "stop_reason_counts": {
+    "dev_test_passed": 26,
+    "repeated_code": 3,
+    "max_repairs_reached": 1
+  },
+  "dev_passed_but_hidden_failed": 1,
+  "first_status_counts": {
+    "passed": 25,
+    "test_failure": 5
+  },
+  "repair_summary": {
+    "tasks": 30,
+    "initially_correct": 25,
+    "initially_failed": 5,
+    "repaired": 0,
+    "still_failed": 5,
+    "broken_by_repair": 0,
+    "repair_success_rate": 0.0,
+    "repair_calls": 11
+  },
+  "repair_by_difficulty": {
+    "Easy": {
+      "tasks": 10,
+      "initially_correct": 10,
+      "initially_failed": 0,
+      "repaired": 0,
+      "still_failed": 0,
+      "broken_by_repair": 0,
+      "repair_success_rate": null,
+      "repair_calls": 0
+    },
+    "Medium": {
+      "tasks": 10,
+      "initially_correct": 9,
+      "initially_failed": 1,
+      "repaired": 0,
+      "still_failed": 1,
+      "broken_by_repair": 0,
+      "repair_success_rate": 0.0,
+      "repair_calls": 1
+    },
+    "Hard": {
+      "tasks": 10,
+      "initially_correct": 6,
+      "initially_failed": 4,
+      "repaired": 0,
+      "still_failed": 4,
+      "broken_by_repair": 0,
+      "repair_success_rate": 0.0,
+      "repair_calls": 10
+    }
+  },
+  "repair_by_first_error": {
+    "test_failure": {
+      "tasks": 5,
+      "repaired": 0
+    }
+  }
+}
