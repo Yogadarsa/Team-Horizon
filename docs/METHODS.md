@@ -9,7 +9,8 @@ saved in its JSON file under `settings`.
 We use MBPP (the sanitized version). The tasks we picked are in `Dataset/`:
 
 * `mbpp_final_30.jsonl`: 30 tasks, 10 Easy, 10 Medium, 10 Hard
-* `mbpp_initial_10.jsonl`: 10 tasks we used for the first tests
+* `mbpp_initial_10.jsonl`: 10 tasks we used for the first tests. All 10 are also in `final_30`, so the two files
+  are never added together; the results we report are the `final_30` ones.
 
 How we chose the tasks and their difficulty is in `Dataset/mbpp_difficulty_log.csv` and `Dataset/README.md`.
 
@@ -31,6 +32,7 @@ We run on the KTU JupyterHub server, one A100 40 GB GPU per run. Both models fit
 
 Generation is greedy (`do_sample=False`) with `max_new_tokens = 512`, the same for both models and both strategies.
 With greedy decoding the same prompt always gives the same answer, so the runs can be repeated.
+In the final runs none of the 179 answers reached the 512-token limit, so no answer was cut off.
 
 We use each model's own chat template. The exact text the model got is saved for every call (`prompt_rendered` in
 `_code.jsonl`). Library versions, GPU, CUDA, dtype and model revision are saved in the JSON (`settings.environment`).
@@ -127,8 +129,8 @@ A normal Python loop does the repairs. There is no second model and no agent.
    error, the feedback is the error with its line number, for example `SyntaxError: expected ':' (line 1)`.
 3. Test check (`run_tester`): the code runs with the visible test only, in the sandbox. A test like
    `assert f(x) == y` is rewritten so the feedback shows what was expected and what came back, for example
-   `AssertionError: expected 3000, got 45000`. Other errors give the error message, and a timeout gives
-   `Timeout: the code did not finish in 10 seconds`.
+   `AssertionError: expected 3000, got 45000`. Long values are cut after 200 characters. Other errors give the
+   error message, and a timeout gives `Timeout: the code did not finish in 10 seconds`.
 4. If step 2 or 3 failed, the repair prompt from section 3 goes to the model, and the new code goes back to step 2.
 
 Budget: one first try and up to 5 repairs, so at most 6 LLM calls per task (`--max-repairs 5`). We don't use the
@@ -223,3 +225,5 @@ and the model returned the same code again.
   when there is no bigger number, which the text doesn't mention. Following the text, these two can't be solved. We
   kept them so the results stay comparable with MBPP, and they are marked in the failure report.
 * Execution times depend on the server load, so tokens and LLM calls are the main cost numbers.
+* The two models run with different transformers versions (DeepSeek needs 4.57.6). Both use greedy decoding and the
+  same prompts and settings, but the library version is not identical.
