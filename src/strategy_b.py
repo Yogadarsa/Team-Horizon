@@ -1,47 +1,30 @@
 #!/usr/bin/env python3
 """
-Strategy B - LLM + real compiler/test feedback (same LLM, no extra model).
+Strategy B: the same model fixes its own code using compiler and test feedback.
+A normal Python loop does the repairs, there is no second model and no agent.
 
-Professor's architecture:
-  Task -> LLM -> Solution -> Compile / Test -> Feedback -> same LLM -> corrected solution
-  A plain Python loop controls the repairs. No second LLM, no agent.
+For each task:
+  1. First try with the same prompt as A (so attempt 1 = Strategy A).
+  2. Compile the code (like py_compile). On a syntax error, that error is the feedback.
+  3. Run test 1 (the one shown in the prompt) in the sandbox. If it fails, the feedback
+     says what was expected and what the code returned, e.g. "expected 3, got -1".
+  4. Send the task, the last code and the feedback back to the model, go to step 2.
+  5. At the end, run the last code on all tests, same as A. Tests 2 and 3 are never shown.
 
-Per task:
-  1. LLM writes code with exactly the same prompt as Strategy A (so attempt 1 == Strategy A).
-  2. Compile check: Python's own compiler (same as py_compile). Syntax error -> feedback.
-  3. Dev test: run the code against the ONE test that is already in the prompt (test_list[0]),
-     in the same isolated process as Strategy A (time + memory limits).
-     If it fails, the feedback says what was expected and what the code returned.
-  4. If 2 or 3 failed: send task + previous code + feedback to the same LLM -> new code -> back to 2.
-     Stop when the dev test passes, or after --max-iterations LLM calls (default 5 = 1 first try + 4 repairs),
-     or when the model
-     writes the same code again: with greedy decoding the next prompt would then be identical,
-     so the next answer would be identical too. Stopping there cannot change the result, it only saves cost.
-  5. Final evaluation: the last code is run against ALL 3 tests (same check as Strategy A).
-     Tests 2 and 3 are never shown to the model. The final result is reported as
-     final_success_rate (= solve rate), not pass@1, because B may call the LLM several times.
+Budget: 1 first try + --max-repairs repairs (default 5, so at most 6 LLM calls).
+The loop stops when test 1 passes, when the repairs are used up, or when the model returns
+the same code with the same error as before (greedy decoding would give the same answer
+again, so there is no point continuing).
 
-Code extraction and cleaning are the same as in Strategy A (baseline_oneshot.extract_code / remove_model_tests).
+The first attempt is also run on all tests (first_status) to compare with A. That run is
+not timed and the model never sees it.
 
-Measurements per task (same columns as A, plus B-only columns):
-  llm_calls = 1 initial + repair_calls;  tokens and generation time are split into initial and repair parts.
-  eval_exec_time_s     = final evaluation run on all tests (identical procedure in A and B)
-  feedback_exec_time_s = the extra dev-test runs that B needs to create feedback
-  The diagnostic run of attempt 1 on all tests (first_status, to compare with A) is NOT counted in any time.
-_code.jsonl keeps, for every attempt: full rendered prompt, raw answer, extracted + cleaned code,
-compile result, dev-test result, feedback, tokens, times, token-limit flag.
-
-Output (results/):  feedback_it<k>_<model>_<dataset>_<data file>.csv / .json / _code.jsonl
-Extra CSV columns: first_status (attempt 1 on all tests = Strategy A result), dev_passed,
-stop_reason (dev_test_passed / repeated_code / max_iterations_reached).
-
-Needs src/baseline_oneshot.py next to this file.
+Output in results/: feedback_r<k>_<model>_<dataset>_<data>.csv / .json / _code.jsonl
+(k = max repairs). The JSON has a repair_summary: initially_failed, repaired, still_failed.
 
     python src/strategy_b.py --selftest
     python -u src/strategy_b.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct \
-        --dataset mbpp --data-file Dataset/mbpp_initial_10.jsonl --max-new-tokens 512
-    python -u src/strategy_b.py --backend hf --model deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
-        --quant 8bit --no-remote-code --dataset mbpp --data-file Dataset/mbpp_initial_10.jsonl --max-new-tokens 512
+        --dataset mbpp --data-file Dataset/mbpp_final_30.jsonl --max-new-tokens 512
 """
 import argparse
 import ast
@@ -133,16 +116,17 @@ def make_fix_prompt(task, code, feedback):
 # --------------------------------------------------------------------------- #
 # One task
 # --------------------------------------------------------------------------- #
-def run_task(task, backend, model_label, timeout, max_iterations):
+def run_task(task, backend, model_label, timeout, max_repairs):
     gen_t = [0.0, 0.0]          # [initial, repair] generation time
     tok_in, tok_out = [0, 0], [0, 0]
     t_feedback = 0.0
     attempts = []
     prompt = base.make_prompt(task)
     code = feedback = first = ""
-    dev_ok, stop = False, "max_iterations_reached"
+    dev_ok, stop = False, "max_repairs_reached"
+    ambiguous = 0
     limit = getattr(backend, "max_new_tokens", 10**9)
-    for gen_no in range(max_iterations):  # one iteration = one LLM call (0 = first try, 1.. = repairs)
+    for gen_no in range(1 + max_repairs):  # one LLM call each: 0 = first try, 1..max_repairs = repairs
         if gen_no > 0:
             prompt = make_fix_prompt(task, code, feedback)
         k = 0 if gen_no == 0 else 1
@@ -152,14 +136,15 @@ def run_task(task, backend, model_label, timeout, max_iterations):
         gen_t[k] += g
         tok_in[k] += i
         tok_out[k] += o
-        extracted = base.extract_code(text)
+        extracted, ext = base.extract_code_info(text, task.get("func_name"))
+        ambiguous += ext["ambiguous"]
         code = base.remove_model_tests(extracted)
         dev_ok, feedback, dt, stage = run_tester(task, code, timeout)
         t_feedback += dt
         attempts.append({"attempt": gen_no, "kind": "initial" if gen_no == 0 else "repair",
                          "prompt_rendered": getattr(backend, "last_prompt", "") or prompt,
-                         "raw_output": text, "extracted_code": extracted, "code": code,
-                         "check_stage": stage, "dev_passed": dev_ok, "feedback": feedback,
+                         "raw_output": text, "extraction": ext, "extracted_code": extracted,
+                         "code": code, "check_stage": stage, "dev_passed": dev_ok, "feedback": feedback,
                          "input_tokens": i, "output_tokens": o, "hit_token_limit": o >= limit,
                          "gen_time_s": round(g, 3), "feedback_exec_time_s": round(dt, 3)})
         if gen_no == 0:  # attempt 1 on all tests = what Strategy A would score (diagnostic, not timed)
@@ -190,6 +175,7 @@ def run_task(task, backend, model_label, timeout, max_iterations):
         "repair_gen_time_s": round(gen_t[1], 3),
         "eval_exec_time_s": round(t_eval, 3), "feedback_exec_time_s": round(t_feedback, 3),
         "exec_time_s": round(t_exec, 3), "total_time_s": round(t_gen + t_exec, 3),
+        "ambiguous_extractions": ambiguous,
         "first_status": first, "dev_passed": int(dev_ok),
         "stop_reason": stop,
     }
@@ -209,7 +195,34 @@ def summarize(rows, settings=None):
     s["stop_reason_counts"] = dict(Counter(r["stop_reason"] for r in rows))
     s["dev_passed_but_hidden_failed"] = sum(1 for r in rows if int(r["dev_passed"]) and not r["solved"])
     s["first_status_counts"] = dict(Counter(r["first_status"] for r in rows))
+    s["repair_summary"] = repair_stats(rows)
+    levels = {}
+    for r in rows:
+        levels.setdefault(r.get("difficulty") or "-", []).append(r)
+    if len(levels) > 1 or "-" not in levels:
+        s["repair_by_difficulty"] = {k: repair_stats(v) for k, v in levels.items()}
+    by_first = {}
+    for r in rows:
+        if r["first_status"] != "passed":
+            by_first.setdefault(r["first_status"], []).append(r)
+    s["repair_by_first_error"] = {k: {"tasks": len(v), "repaired": sum(x["solved"] for x in v)}
+                                  for k, v in sorted(by_first.items())}
     return s
+
+
+def repair_stats(rows):
+    """What happened to the tasks whose first attempt failed (professor: how many wrong, repaired, still wrong)."""
+    first_ok = [r for r in rows if r["first_status"] == "passed"]
+    first_bad = [r for r in rows if r["first_status"] != "passed"]
+    repaired = sum(r["solved"] for r in first_bad)
+    return {"tasks": len(rows),
+            "initially_correct": len(first_ok),
+            "initially_failed": len(first_bad),
+            "repaired": repaired,
+            "still_failed": len(first_bad) - repaired,
+            "broken_by_repair": sum(1 for r in first_ok if not r["solved"]),  # expected 0: B stops once test 1 passes
+            "repair_success_rate": round(repaired / len(first_bad), 4) if first_bad else None,
+            "repair_calls": sum(int(r["repair_calls"]) for r in rows)}
 
 
 # --------------------------------------------------------------------------- #
@@ -236,14 +249,14 @@ def selftest():
     bad_logic = "def add(a, b):\n    return a - b"
     only_dev = "def add(a, b):\n    return 3"  # passes test 1, fails tests 2-3
     crash = "def add(a, b):\n    return a + c"
-    cases = {  # answers, expected (solved, iterations, first_status, stop_reason)
+    cases = {  # answers, expected (solved, llm_calls, first_status, stop_reason); budget: 1 + 3 repairs
         "right_first": ([ok_code], (1, 1, "passed", "dev_test_passed")),
         "fixed_syntax": ([bad_syntax, ok_code], (1, 2, "syntax_error", "dev_test_passed")),
         "fixed_logic": ([bad_logic, ok_code], (1, 2, "test_failure", "dev_test_passed")),
         "fixed_crash": ([crash, ok_code], (1, 2, "runtime_error", "dev_test_passed")),
         "repeats_code": ([bad_logic], (0, 2, "test_failure", "repeated_code")),
         "never_fixed": ([bad_logic, crash, bad_syntax, "def add(a, b):\n    return a * b"],
-                        (0, 4, "test_failure", "max_iterations_reached")),
+                        (0, 4, "test_failure", "max_repairs_reached")),
         "dev_only": ([only_dev], (0, 1, "test_failure", "dev_test_passed")),
     }
     tasks = []
@@ -252,7 +265,7 @@ def selftest():
         t["task_id"] = k
         tasks.append(t)
     mock = ScriptedMock({k: v[0] for k, v in cases.items()})
-    rows = [run_task(t, mock, "mock", timeout=3, max_iterations=4)[0] for t in tasks]
+    rows = [run_task(t, mock, "mock", timeout=3, max_repairs=3)[0] for t in tasks]
     ok = True
     for r in rows:
         want = cases[r["task_id"]][1]
@@ -273,14 +286,20 @@ def selftest():
     t = dict(tasks[0], task_id="echo_then_fix")
     m2 = ScriptedMock({"echo_then_fix": [bad_logic + "\nassert add(1, 2) == 99",
                                          bad_logic + "\n```\nFixed:\n```python\n" + ok_code]})
-    r2, g2 = run_task(t, m2, "mock", timeout=3, max_iterations=4)
-    good = (r2["solved"], r2["llm_calls"]) == (1, 2) and "expected 3, got -1" in g2["attempts"][0]["feedback"]
+    r2, g2 = run_task(t, m2, "mock", timeout=3, max_repairs=3)
+    good = ((r2["solved"], r2["llm_calls"], r2["ambiguous_extractions"]) == (1, 2, 1)
+            and "expected 3, got -1" in g2["attempts"][0]["feedback"]
+            and g2["attempts"][1]["extraction"]["case"] == "several_last")
     ok &= good
-    print(f"  {'OK ' if good else 'FAIL'} corrected (last) block used; model's own assert ignored -> real feedback")
+    print(f"  {'OK ' if good else 'FAIL'} corrected (last) block used and flagged ambiguous; model's own assert ignored -> real feedback")
     times = all(abs(r["exec_time_s"] - r["eval_exec_time_s"] - r["feedback_exec_time_s"]) < 0.002 and
                 r["repair_calls"] == r["llm_calls"] - 1 for r in rows)
     ok &= times
     print(f"  {'OK ' if times else 'FAIL'} exec = eval + feedback, repair_calls = llm_calls - 1")
+    st = repair_stats(rows)
+    good = (st["initially_failed"], st["repaired"], st["still_failed"], st["broken_by_repair"]) == (6, 3, 3, 0)
+    ok &= good
+    print(f"  {'OK ' if good else 'FAIL'} repair summary: 6 initially failed, 3 repaired, 3 still failed, 0 broken")
     print("summary:", json.dumps(summarize(rows)))
     print("SELFTEST PASSED" if ok else "SELFTEST FAILED")
     return 0 if ok else 1
@@ -303,8 +322,8 @@ def main():
     ap.add_argument("--dataset", choices=["mbpp"], default="mbpp")
     ap.add_argument("--data-file", help="team dataset, e.g. Dataset/mbpp_initial_10.jsonl")
     ap.add_argument("--limit", type=int)
-    ap.add_argument("--max-iterations", type=int, default=5,
-                    help="max LLM calls per task: 1 first try + repairs (default 5)")
+    ap.add_argument("--max-repairs", type=int, default=5,
+                    help="repairs after the first try (default 5 -> at most 1 + 5 = 6 LLM calls per task)")
     ap.add_argument("--timeout", type=int, default=10)
     ap.add_argument("--mem-mb", type=int, default=1024)
     ap.add_argument("--max-new-tokens", type=int, default=512, help="keep identical to Strategy A")
@@ -332,14 +351,15 @@ def main():
     label = a.model + (f"@{a.quant}" if a.quant else "")
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"feedback_it{a.max_iterations}_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
+    stem = f"feedback_r{a.max_repairs}_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
     csv_path, code_path = out / f"{stem}.csv", out / f"{stem}_code.jsonl"
     settings = {"model": a.model, "max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
                 "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "remote_code": not a.no_remote_code,
-                "max_iterations": a.max_iterations,
+                "max_repairs": a.max_repairs, "max_llm_calls": 1 + a.max_repairs,
+                "stop_rules": "dev_test_passed, max_repairs_reached, repeated_code (same code + same error as before)",
                 "feedback": "compiler + dev test (test 1, shown in prompt)",
                 "final_tests": "all 3 tests", "data": a.data_file,
-                "code_extraction": "last python block with a function; model's own top-level test code removed",
+                "code_extraction": base.EXTRACTION_RULE,
                 "environment": base.env_info(backend)}
 
     rows = read_rows(csv_path) if a.resume and csv_path.exists() else []
@@ -356,7 +376,7 @@ def main():
         for i, task in enumerate(tasks, 1):
             if task["task_id"] in done:
                 continue
-            row, gen = run_task(task, backend, label, a.timeout, a.max_iterations)
+            row, gen = run_task(task, backend, label, a.timeout, a.max_repairs)
             rows.append(row)
             w.writerow(row)
             fh.flush()

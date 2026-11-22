@@ -1,22 +1,19 @@
 #!/bin/bash
-# Runs Strategy A and B for both models on both team datasets, one after another, on ONE GPU.
-# Both models in 16-bit (no 8-bit), same settings everywhere.
+# Runs A and B (1 + 5 repairs) for both models on both datasets, one after the other.
+# At the end it runs the checks and writes the failure reports to results/analysis/.
 #
 #   cd ~/Team-Horizon
-#   nohup bash src/run_all.sh > run_all.log 2>&1 &
+#   GPU=1 GPU_D=0 nohup bash src/run_all.sh > run_all.log 2>&1 &
 #   tail -f run_all.log
 #
-# If the server restarts: start it again with  RESUME=--resume nohup bash src/run_all.sh > run_all.log 2>&1 &
-# (finished tasks are skipped).
-#
-# GPU choice (check nvidia-smi first):  GPU = GPU for Qwen (default 2),  GPU_D = GPU(s) for DeepSeek (default = GPU).
-# DeepSeek in 16-bit needs ~30 GB. If one GPU doesn't have that free, split it over two:  GPU_D=2,1
-#   GPU=2 GPU_D=2,1 nohup bash src/run_all.sh > run_all.log 2>&1 &
+# GPU = GPU for Qwen, GPU_D = GPU for DeepSeek (needs about 30 GB free, check nvidia-smi first).
+# If it stops halfway, start it again with RESUME=--resume (finished tasks are skipped).
 set -e
 cd ~/Team-Horizon
 GPU=${GPU:-2}
 GPU_D=${GPU_D:-$GPU}
 RESUME=${RESUME:-}
+REPAIRS=${REPAIRS:-5}   # Strategy B: repairs after the first try (5 -> at most 6 LLM calls)
 
 Q=Qwen/Qwen2.5-Coder-7B-Instruct
 D=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
@@ -32,10 +29,15 @@ for DATA in final_30 initial_10; do
   echo "===== $(date '+%H:%M') Qwen A  $DATA ====="
   CUDA_VISIBLE_DEVICES=$GPU $PY_Q -u src/baseline_oneshot.py --backend hf --model $Q --data-file $F $COMMON
   echo "===== $(date '+%H:%M') Qwen B  $DATA ====="
-  CUDA_VISIBLE_DEVICES=$GPU $PY_Q -u src/strategy_b.py --backend hf --model $Q --data-file $F $COMMON
+  CUDA_VISIBLE_DEVICES=$GPU $PY_Q -u src/strategy_b.py --backend hf --model $Q --data-file $F --max-repairs $REPAIRS $COMMON
   echo "===== $(date '+%H:%M') DeepSeek A  $DATA ====="
   CUDA_VISIBLE_DEVICES=$GPU_D $PY_D -u src/baseline_oneshot.py --backend hf --model $D --no-remote-code --data-file $F $COMMON
   echo "===== $(date '+%H:%M') DeepSeek B  $DATA ====="
-  CUDA_VISIBLE_DEVICES=$GPU_D $PY_D -u src/strategy_b.py --backend hf --model $D --no-remote-code --data-file $F $COMMON
+  CUDA_VISIBLE_DEVICES=$GPU_D $PY_D -u src/strategy_b.py --backend hf --model $D --no-remote-code --data-file $F --max-repairs $REPAIRS $COMMON
 done
+echo "===== $(date '+%H:%M') checks ====="
+$PY_Q src/verify_extraction.py --quiet
+$PY_Q src/reevaluate_sandbox.py
+$PY_Q src/analyze_failures.py --data mbpp_final_30
+$PY_Q src/analyze_failures.py --data mbpp_initial_10
 echo "===== $(date '+%H:%M') ALL DONE ====="

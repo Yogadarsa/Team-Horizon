@@ -1,0 +1,9 @@
+task_id,model,cause,note
+MBPP/103,Qwen,wrong_edge_case,"Right recurrence for Eulerian numbers, wrong base case: returns 1 when n == m, but A(n, n) = 0. Gives 8 instead of 4. The repair only added comments (same program)."
+MBPP/103,DeepSeek,wrong_edge_case,"Right base cases and recurrence, plus an extra special case for m == 1 that is wrong: (n-1) * A(n-1, 0) gives 2 instead of 4. Same program in all 6 attempts."
+MBPP/407,Qwen,task_spec_mismatch,"The algorithm is correct (12 -> 21, 102 -> 120). It returns -1 when no bigger number exists, but a hidden test expects False. The task text does not say what to return in that case; with False the same code passes all tests."
+MBPP/407,DeepSeek,task_spec_mismatch,"Same as Qwen: correct next-permutation algorithm, returns -1 instead of the False that a hidden test expects. Not stated in the task text."
+MBPP/468,Qwen,task_spec_mismatch,"The text asks for the largest product of an increasing SUBSEQUENCE; the model answers that correctly (3*100*150 = 45000). The tests expect the product of an increasing CONTIGUOUS run (4*5*150 = 3000); all 3 tests match the contiguous version. A model that follows the text cannot pass."
+MBPP/468,DeepSeek,task_spec_mismatch,"Same task problem as for Qwen. DeepSeek first gave 45000 (correct for the text), then changed the code after the feedback and got 15000; no version can match the tests while following the text."
+MBPP/108,DeepSeek,wrong_algorithm,"Uses sorted(set(...)), which removes duplicates. The feedback shows the duplicates in the expected list (24, 24, 25, 25), but the model returned the same code. Qwen solved it."
+MBPP/125,DeepSeek,wrong_algorithm,"Tracks (zeros - ones) from the start of the string (a prefix) instead of the best substring (Kadane's method), gives 4 instead of 6. Same program in all 3 attempts. Qwen solved it with Kadane's method."

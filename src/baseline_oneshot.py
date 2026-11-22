@@ -1,49 +1,30 @@
 #!/usr/bin/env python3
 """
-Strategy A - one-shot baseline (n = 0 corrections).
+Strategy A: one-shot baseline. The model gets one try per task, no feedback.
+B and C reuse most of this file (backends, prompt, code extraction, sandbox, logging).
 
-Flow per task:  task -> LLM generates code ONCE -> run unit tests -> log result.
-No compiler feedback, no retries. This is the reference point for strategies B and C.
+Settings are fixed for all models and strategies: greedy decoding, max_new_tokens 512,
+10 s timeout, 1024 MB memory per run.
 
-Fixed on purpose (team decision 12 Oct: "everything fixed, no tuning"):
-  * greedy decoding (do_sample=False), so runs are reproducible
-  * max_new_tokens identical for every model and every strategy (default 256)
+Check the setup (no model needed):
+    python src/baseline_oneshot.py --selftest
 
-Execution of generated code (professor: "isolated environment with time and resource limits"):
-  * every solution runs in its own temporary folder, as a separate Python process in isolated mode (-I)
-  * limits per run: wall-clock timeout, CPU time, memory, file size
-  * on timeout the whole process group is killed (also child processes the code started)
-  This is still not a container sandbox: network and the user's home folder are not blocked.
+Run:
+    python src/baseline_oneshot.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct \
+        --dataset mbpp --data-file Dataset/mbpp_final_30.jsonl --max-new-tokens 512
+    (DeepSeek: use ~/venv-glm/bin/python and add --no-remote-code)
 
-Quick check that your environment works (no model, no dataset needed):
-    python baseline_oneshot.py --selftest
+Output in results/:
+    oneshot_<name>.csv          one row per task
+    oneshot_<name>.json         summary + all settings and versions
+    oneshot_<name>_code.jsonl   prompt, raw answer, extracted and cleaned code for every task
 
-Team dataset (Shankar's Dataset/ folder, MBPP tasks with difficulty levels):
-    python src/baseline_oneshot.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct --dataset mbpp --data-file Dataset/mbpp_initial_10.jsonl
-    python src/baseline_oneshot.py --backend hf --model deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct --quant 8bit --no-remote-code --dataset mbpp --data-file Dataset/mbpp_final_30.jsonl
-
-Full official datasets (downloaded from Hugging Face):
-    python src/baseline_oneshot.py --backend hf --model Qwen/Qwen2.5-Coder-7B-Instruct --dataset humaneval
-
-Outputs (in --out-dir, default ./results); <name> = model + dataset (+ data file name):
-    oneshot_<name>.csv          one row per task (same columns B and C reuse)
-    oneshot_<name>.json         summary: solve_rate = solved / total (also per difficulty), time, tokens,
-                                exact model / library / GPU configuration
-    oneshot_<name>_code.jsonl   full prompt (after the chat template), raw answer, extracted and cleaned code
-
-Code handling (13 Nov, after checking raw DeepSeek answers):
-  * extract_code takes the LAST ```python block with a function: when a model repeats the old code and then
-    writes a corrected version, the corrected version is its answer.
-  * remove_model_tests removes the model's own top-level test code (asserts, prints, example calls); only imports,
-    functions, classes and constant assignments are kept (similar to the EvalPlus "sanitize" step).
-    The model's own (sometimes wrong) asserts must not decide the result or hide the real test feedback.
-    Checked on all Strategy A answers: neither change alters any A result.
-
-Times per task:  gen_time_s = all LLM calls,  eval_exec_time_s = final evaluation run (all tests, same in A/B/C),
-                 feedback_exec_time_s = extra runs used only to create feedback (0 in A),
-                 exec_time_s = eval + feedback,  total_time_s = gen + exec.
+How the code is taken from the answer: see extract_code_info and remove_model_tests.
+How it is run: see run_code (sandbox + limits). Full description: docs/METHODS.md
 """
 import argparse
+import ast
+import builtins
 import csv
 import json
 import os
@@ -70,11 +51,16 @@ CSV_FIELDS = [
     "initial_input_tokens", "initial_output_tokens", "repair_input_tokens", "repair_output_tokens",
     "gen_time_s", "initial_gen_time_s", "repair_gen_time_s",
     "eval_exec_time_s", "feedback_exec_time_s", "exec_time_s", "total_time_s",
+    "ambiguous_extractions",  # answers with several DIFFERENT candidate code blocks (see extract_code_info)
 ]
 INT_FIELDS = {"solved", "llm_calls", "repair_calls", "input_tokens", "output_tokens", "initial_input_tokens",
-              "initial_output_tokens", "repair_input_tokens", "repair_output_tokens", "iterations"}
+              "initial_output_tokens", "repair_input_tokens", "repair_output_tokens", "iterations",
+              "ambiguous_extractions"}
 FLOAT_FIELDS = {"gen_time_s", "initial_gen_time_s", "repair_gen_time_s", "eval_exec_time_s",
                 "feedback_exec_time_s", "exec_time_s", "total_time_s"}
+EXTRACTION_RULE = ("Python code blocks that define the function called in the visible test; one or identical -> "
+                   "that block, several different -> the last one (flagged ambiguous); model's own top-level "
+                   "test code removed")
 LIMITS = {"mem_mb": 1024, "fsize_mb": 10}  # set from the command line in main()
 
 
@@ -90,6 +76,7 @@ def normalize(row, dataset):
             "difficulty": row.get("difficulty", ""),
             "prompt": row["prompt"],
             "entry_point": ep,
+            "func_name": ep,
             "tests": row["test"] + f"\ncheck({ep})\n",
             "mock_output": row["prompt"] + row.get("canonical_solution", ""),
         }
@@ -102,6 +89,7 @@ def normalize(row, dataset):
         "difficulty": row.get("difficulty", ""),
         "prompt": prompt,
         "entry_point": None,
+        "func_name": called_function(row["test_list"][0]),  # used to find the right code block
         "tests": setup + "\n" + "\n".join(row["test_list"]) + "\n",
         "mock_output": row.get("code", ""),
     }
@@ -131,7 +119,7 @@ class HFBackend:
         self.max_new_tokens = max_new_tokens
         self.tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=remote_code)
         kwargs = dict(device_map="auto", trust_remote_code=remote_code)
-        if quant == "8bit":  # same setting as 02_Models_setup.ipynb (DeepSeek)
+        if quant == "8bit":  # not used in the final runs, kept for the old notebook setting
             from transformers import BitsAndBytesConfig
             kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
         else:
@@ -145,7 +133,10 @@ class HFBackend:
                 "dtype": str(self.model.dtype), "device_map": str(getattr(self.model, "hf_device_map", ""))[:300]}
 
     def generate(self, system, user, task=None):
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return self.generate_chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
+
+    def generate_chat(self, messages):
+        """Any conversation (used by Strategy C's multi-step agent). Same decoding settings as generate()."""
         text = self.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         self.last_prompt = text  # exact text the model sees (chat template applied), saved in _code.jsonl
         enc = self.tok(text, return_tensors="pt", add_special_tokens=False).to(self.model.device)
@@ -192,14 +183,65 @@ class MockBackend:
 # --------------------------------------------------------------------------- #
 # Code extraction + isolated execution
 # --------------------------------------------------------------------------- #
-def extract_code(text):
-    """The model's answer = the LAST code block that defines a function (a model often repeats the old
-    code first and writes the corrected version after it)."""
-    blocks = re.findall(r"```(?:python|py)?[ \t]*\n(.*?)(?:```|\Z)", text, re.S)
+FENCE = re.compile(r"```[ \t]*([\w+.-]*)[^\n]*\n(.*?)(?:```|\Z)", re.S)
+PY_TAGS = {"", "python", "py", "python3"}
+
+
+def defines_function(code, name):
+    """True if the code defines a top-level function with this name."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:  # broken code: fall back to a text search, so a syntax error is still reported
+        return re.search(rf"^def\s+{re.escape(name)}\s*\(", code, re.M) is not None
+    return any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name for n in tree.body)
+
+
+def extract_code_info(text, func_name=None):
+    """Find the solution in the model's answer. Returns (code, info).
+
+    Only Python blocks that define the function from test 1 count (helper or example blocks
+    are skipped). If there is one, or the same one repeated, we use it. If there are two
+    different versions we use the last one, because the model usually writes the old code
+    first and the fixed one after it. These answers get ambiguous=True so we can count them
+    and check them with verify_extraction.py.
+    If no block defines the function we fall back to any block with a def, then any block,
+    then the whole answer.
+    """
+    blocks = [code for tag, code in FENCE.findall(text) if tag.lower() in PY_TAGS]
+    info = {"n_blocks": len(blocks), "n_candidates": 0, "n_distinct": 0, "case": "", "ambiguous": False}
     if not blocks:
-        return text.strip("\n")
-    with_def = [b for b in blocks if "def " in b]
-    return with_def[-1] if with_def else blocks[-1]
+        info["case"] = "no_block"
+        return text.strip("\n"), info
+    cands = [b for b in blocks if func_name and defines_function(b, func_name)]
+    fallback = ""
+    if not cands:
+        cands = [b for b in blocks if re.search(r"^\s*def\s", b, re.M)]
+        fallback = "fallback_def"
+    if not cands:
+        cands, fallback = blocks, "fallback_any"
+    distinct = {c.strip() for c in cands}
+    info.update(n_candidates=len(cands), n_distinct=len(distinct))
+    if len(distinct) > 1:
+        info.update(case="several_last", ambiguous=True)
+    else:
+        info["case"] = fallback or ("single" if len(cands) == 1 else "identical")
+    return cands[-1], info
+
+
+def extract_code(text, func_name=None):
+    return extract_code_info(text, func_name)[0]
+
+
+def called_function(test):
+    """Name of the function called in a test like `assert f(1, 2) == 3` (the function the task asks for)."""
+    try:
+        node = ast.parse(test.strip()).body[0]
+    except (SyntaxError, IndexError):
+        return None
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and not hasattr(builtins, n.func.id):
+            return n.func.id
+    return None
 
 
 def remove_model_tests(code):
@@ -248,8 +290,8 @@ def classify(last_line):
     return "runtime_error"
 
 
-# Runs inside the child process: sets its own limits, then executes the program.
-# (Setting limits in the child itself is safe even when the parent has many threads, e.g. torch.)
+# This runs in the child process: set the limits there, then run the program.
+# (Doing it in the child is safer than preexec_fn when torch threads are running.)
 _LAUNCHER = r"""
 import os, resource, runpy, sys
 mem, cpu, fsize, path = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
@@ -260,10 +302,11 @@ for lim, val in ((resource.RLIMIT_AS, mem), (resource.RLIMIT_CPU, cpu), (resourc
         pass
 sys.dont_write_bytecode = True
 
-# Audit hook (PEP 578): runs before every sensitive action of the generated code and cannot be removed.
-# Writing/deleting/renaming is allowed only inside this run's temp folder; no new processes,
-# no network, no ctypes (which could bypass the hook).
+# Audit hook (PEP 578). Python calls it before file, process and network actions and the
+# generated code can't remove it. Only the temp folder is writable. The project folder (where the
+# hidden tests are) and private config can't be read. No subprocesses, sockets or ctypes.
 ALLOW = os.path.realpath(os.path.dirname(path))
+PROTECTED = [os.path.realpath(p) for p in sys.argv[5:]]
 WRITE = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 FILE_EVENTS = {"os.remove", "os.rmdir", "os.mkdir", "os.rename", "os.replace", "os.chmod", "os.chown",
                "os.truncate", "os.utime", "os.symlink", "os.link", "shutil.rmtree", "shutil.move",
@@ -279,7 +322,18 @@ def inside(p):
         return False
     return rp == ALLOW or rp.startswith(ALLOW + os.sep)
 
+def protected(p):
+    try:
+        rp = os.path.realpath(os.fsdecode(p))
+    except Exception:
+        return False
+    return any(rp == d or rp.startswith(d + os.sep) for d in PROTECTED)
+
 def hook(event, args):
+    if event in ("open", "os.listdir", "os.scandir", "glob.glob") and args:
+        p = args[0]
+        if p is not None and not isinstance(p, int) and protected(p if p != "" else "."):
+            raise PermissionError(f"sandbox: access to protected files is blocked ({p})")
     if event == "open":
         p, mode, flags = (tuple(args) + (None, None, None))[:3]
         if p is None or isinstance(p, int):
@@ -299,15 +353,13 @@ runpy.run_path(path, run_name="__main__")
 """
 
 
-# Isolation of generated code, two layers:
-# 1) Linux namespaces via `unshare` (no admin rights needed; the same kernel feature Docker uses).
-#    The strongest level this machine allows is chosen once:
-#      net+pid+ro-home : no network, own process tree, home folder re-mounted read-only
-#      net+pid         : no network, own process tree   (if mount namespaces are not allowed)
-#      net             : no network                     (KTU JupyterHub: only this level is allowed)
-# 2) Audit hook inside the Python process (see _LAUNCHER, always on): no writing / deleting / renaming
-#    outside the run's temp folder in /tmp, no new processes, no sockets, no ctypes.
-# Plus the time / CPU / memory / file-size limits.
+# Sandbox for generated code:
+# 1) unshare (Linux namespaces, works without root). We try these levels and keep the first one that works:
+#      net+pid+ro-home  no network, own process tree, home mounted read-only
+#      net+pid          no network, own process tree (this is what the KTU server allows)
+#      net              no network
+# 2) the audit hook in _LAUNCHER (always on)
+# 3) time, CPU, memory and file size limits
 _HOME_RO = 'mount --bind "$1" "$1" && mount -o remount,bind,ro "$1" && shift && exec "$@"'
 _SANDBOX_LEVELS = [
     ("net+pid+ro-home", ["--user", "--map-root-user", "--net", "--mount", "--pid", "--fork", "--kill-child",
@@ -345,7 +397,18 @@ def sandbox_prefix():
 def sandbox_info():
     sandbox_prefix()
     return (f"namespaces: {_SANDBOX[0]}; audit hook: no writes/deletes outside the temp folder, "
+            "no reading of the project folder (dataset, results) or private config, "
             "no new processes, no sockets, no ctypes; limits: time, CPU, memory, file size")
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Team-Horizon: Dataset/ (hidden tests), results/, src/
+
+
+def protected_paths():
+    """Folders generated code may not read: the project (dataset with hidden tests, results) and private config."""
+    home = Path.home()
+    return [str(p) for p in (PROJECT_ROOT, home / ".cache", home / ".ssh", home / ".config",
+                             home / ".git-credentials", home / ".netrc")]
 
 
 def run_code(program, timeout):
@@ -355,7 +418,8 @@ def run_code(program, timeout):
         path = Path(d) / "prog.py"
         path.write_text(program, encoding="utf-8")
         cmd = sandbox_prefix() + [sys.executable, "-I", "-c", _LAUNCHER,
-               str(LIMITS["mem_mb"] * 2**20), str(timeout + 1), str(LIMITS["fsize_mb"] * 2**20), str(path)]
+               str(LIMITS["mem_mb"] * 2**20), str(timeout + 1), str(LIMITS["fsize_mb"] * 2**20), str(path),
+               *protected_paths()]
         t0 = time.perf_counter()
         p = subprocess.Popen(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              stdin=subprocess.DEVNULL, text=True, start_new_session=True)
@@ -388,7 +452,7 @@ def run_task(task, backend, model_name, timeout):
     t0 = time.perf_counter()
     text, n_in, n_out = backend.generate(SYSTEM_PROMPT, user, task)
     gen_time = time.perf_counter() - t0
-    extracted = extract_code(text)
+    extracted, ext = extract_code_info(text, task.get("func_name"))
     code = remove_model_tests(extracted)
     if not code.strip():
         status, err, exec_time = "no_code", "empty model output", 0.0
@@ -405,10 +469,11 @@ def run_task(task, backend, model_name, timeout):
         "gen_time_s": round(gen_time, 3), "initial_gen_time_s": round(gen_time, 3), "repair_gen_time_s": 0.0,
         "eval_exec_time_s": round(exec_time, 3), "feedback_exec_time_s": 0.0,
         "exec_time_s": round(exec_time, 3), "total_time_s": round(gen_time + exec_time, 3),
+        "ambiguous_extractions": int(ext["ambiguous"]),
     }
     gen = {"task_id": task["task_id"], "status": status, "error": err,
            "prompt_rendered": getattr(backend, "last_prompt", "") or f"[system]\n{SYSTEM_PROMPT}\n[user]\n{user}",
-           "raw_output": text, "extracted_code": extracted, "code": code,
+           "raw_output": text, "extraction": ext, "extracted_code": extracted, "code": code,
            "input_tokens": n_in, "output_tokens": n_out, "hit_token_limit": n_out >= getattr(backend, "max_new_tokens", 10**9)}
     return row, gen
 
@@ -434,6 +499,7 @@ def _stats(rows):
         "initial_input_tokens": tot("initial_input_tokens"), "initial_output_tokens": tot("initial_output_tokens"),
         "repair_input_tokens": tot("repair_input_tokens"), "repair_output_tokens": tot("repair_output_tokens"),
         "tokens_per_solved_task": round((tok_in + tok_out) / solved, 1) if solved else None,
+        "ambiguous_extractions": tot("ambiguous_extractions"),
         "status_counts": dict(Counter(r["status"] for r in rows)),
     }
 
@@ -453,7 +519,7 @@ def summarize(rows, settings=None):
 
 
 # --------------------------------------------------------------------------- #
-# Self-test: every outcome category, the limits, and the team-dataset format, without any model
+# Self-test (no model needed): result types, limits, sandbox, dataset format, extraction
 # --------------------------------------------------------------------------- #
 def selftest():
     stub = 'def f(a, b):\n    """add two numbers"""\n'
@@ -502,6 +568,10 @@ def selftest():
         ("no deleting in home", f"import os\nos.remove({str(victim)!r})\n" + fn),
         ("no shell commands", "import os\nos.system('echo hacked')\n" + fn),
         ("no ctypes", "import ctypes\n" + fn),
+        ("no reading dataset", f"print(open({str(PROJECT_ROOT / 'Dataset' / 'x.jsonl')!r}).read())\n" + fn),
+        ("no listing project", f"import os\nprint(os.listdir({str(PROJECT_ROOT)!r}))\n" + fn),
+        ("no reading via cwd", "import glob\nprint(glob.glob('/'.join(__file__.split('/')[:0]) + '*'))\n"
+                               f"open({str(PROJECT_ROOT / 'src' / 'baseline_oneshot.py')!r}).read()\n" + fn),
     ]
     for name, code in checks:
         st, err, _ = run_code(add_tests_to_code(tmp_task, code), 5)
@@ -519,6 +589,30 @@ def selftest():
     good = "a + b" in cleaned and "assert" not in cleaned and "print" not in cleaned and "import math" in cleaned
     ok &= good
     print(f"  {'OK ' if good else 'FAIL'} last code block taken, model's own asserts/prints removed")
+    # extraction rule, case by case (reply, function name, expected code start, expected case)
+    f1, f2, g = "def f(x):\n    return 1\n", "def f(x):\n    return 2\n", "def g(x):\n    return 3\n"
+    rule_cases = [
+        ("one block", f"```python\n{f1}```", "f", "def f(x):\n    return 1", "single"),
+        ("same block twice", f"```python\n{f1}```\nagain:\n```python\n{f1}```", "f", "def f(x):\n    return 1",
+         "identical"),
+        ("two versions -> last", f"```python\n{f1}```\nfixed:\n```python\n{f2}```", "f", "def f(x):\n    return 2",
+         "several_last"),
+        ("helper block after", f"```python\n{f1}```\n```python\n{g}```", "f", "def f(x):\n    return 1", "single"),
+        ("bash / output ignored", f"```python\n{f1}```\n```bash\npip install x\n```\n```\n3000\n```", "f",
+         "def f(x):\n    return 1", "single"),
+        ("no target fn -> any def", f"```python\nimport math\n```\n```python\n{g}```", "f", "def g(x)",
+         "fallback_def"),
+        ("cut at token limit", "```python\ndef f(x):\n    return [x", "f", "def f(x):\n    return [x", "single"),
+        ("no code block", "def f(x): return 1", "f", "def f(x): return 1", "no_block"),
+    ]
+    for name, reply, fn, want_code, want_case in rule_cases:
+        code, info = extract_code_info(reply, fn)
+        good = code.startswith(want_code) and info["case"] == want_case and info["ambiguous"] == (want_case == "several_last")
+        ok &= good
+        print(f"  {'OK ' if good else 'FAIL'} extraction: {name:<24} -> {info['case']}")
+    good = called_function("assert math.isclose(volume_sphere(10), 4188.79, rel_tol=0.001)") == "volume_sphere"
+    ok &= good
+    print(f"  {'OK ' if good else 'FAIL'} function name read from the visible test (builtins/modules skipped)")
     print("summary:", json.dumps(summarize(rows + [r])))
     print("SELFTEST PASSED" if ok else "SELFTEST FAILED")
     return 0 if ok else 1
@@ -606,7 +700,7 @@ def main():
     settings = {"model": a.model, "max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
                 "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "remote_code": not a.no_remote_code,
                 "data": a.data_file or f"official {a.dataset}", "limit": a.limit,
-                "code_extraction": "last python block with a function; model's own top-level test code removed",
+                "code_extraction": EXTRACTION_RULE,
                 "environment": env_info(backend)}
 
     rows = _read_rows(csv_path) if a.resume and csv_path.exists() else []

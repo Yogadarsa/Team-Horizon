@@ -1,0 +1,201 @@
+{
+  "strategy": "B_feedback",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "tasks": 10,
+  "solved": 10,
+  "solve_rate": 1.0,
+  "total_llm_calls": 12,
+  "total_repair_calls": 2,
+  "avg_llm_calls": 1.2,
+  "total_gen_time_s": 28.456,
+  "total_initial_gen_time_s": 25.036,
+  "total_repair_gen_time_s": 3.422,
+  "total_eval_exec_time_s": 0.535,
+  "total_feedback_exec_time_s": 0.654,
+  "total_exec_time_s": 1.188,
+  "avg_exec_time_s": 0.119,
+  "total_input_tokens": 1134,
+  "total_output_tokens": 974,
+  "initial_input_tokens": 854,
+  "initial_output_tokens": 835,
+  "repair_input_tokens": 280,
+  "repair_output_tokens": 139,
+  "tokens_per_solved_task": 210.8,
+  "ambiguous_extractions": 0,
+  "status_counts": {
+    "passed": 10
+  },
+  "by_difficulty": {
+    "Easy": {
+      "tasks": 4,
+      "solved": 4,
+      "solve_rate": 1.0,
+      "total_llm_calls": 5,
+      "total_repair_calls": 1,
+      "avg_llm_calls": 1.25,
+      "total_gen_time_s": 5.818,
+      "total_initial_gen_time_s": 5.266,
+      "total_repair_gen_time_s": 0.553,
+      "total_eval_exec_time_s": 0.214,
+      "total_feedback_exec_time_s": 0.272,
+      "total_exec_time_s": 0.485,
+      "avg_exec_time_s": 0.121,
+      "total_input_tokens": 448,
+      "total_output_tokens": 197,
+      "initial_input_tokens": 315,
+      "initial_output_tokens": 175,
+      "repair_input_tokens": 133,
+      "repair_output_tokens": 22,
+      "tokens_per_solved_task": 161.2,
+      "ambiguous_extractions": 0,
+      "status_counts": {
+        "passed": 4
+      }
+    },
+    "Medium": {
+      "tasks": 3,
+      "solved": 3,
+      "solve_rate": 1.0,
+      "total_llm_calls": 4,
+      "total_repair_calls": 1,
+      "avg_llm_calls": 1.333,
+      "total_gen_time_s": 7.118,
+      "total_initial_gen_time_s": 4.25,
+      "total_repair_gen_time_s": 2.869,
+      "total_eval_exec_time_s": 0.16,
+      "total_feedback_exec_time_s": 0.22,
+      "total_exec_time_s": 0.38,
+      "avg_exec_time_s": 0.127,
+      "total_input_tokens": 448,
+      "total_output_tokens": 291,
+      "initial_input_tokens": 301,
+      "initial_output_tokens": 174,
+      "repair_input_tokens": 147,
+      "repair_output_tokens": 117,
+      "tokens_per_solved_task": 246.3,
+      "ambiguous_extractions": 0,
+      "status_counts": {
+        "passed": 3
+      }
+    },
+    "Hard": {
+      "tasks": 3,
+      "solved": 3,
+      "solve_rate": 1.0,
+      "total_llm_calls": 3,
+      "total_repair_calls": 0,
+      "avg_llm_calls": 1.0,
+      "total_gen_time_s": 15.52,
+      "total_initial_gen_time_s": 15.52,
+      "total_repair_gen_time_s": 0,
+      "total_eval_exec_time_s": 0.161,
+      "total_feedback_exec_time_s": 0.162,
+      "total_exec_time_s": 0.323,
+      "avg_exec_time_s": 0.108,
+      "total_input_tokens": 238,
+      "total_output_tokens": 486,
+      "initial_input_tokens": 238,
+      "initial_output_tokens": 486,
+      "repair_input_tokens": 0,
+      "repair_output_tokens": 0,
+      "tokens_per_solved_task": 241.3,
+      "ambiguous_extractions": 0,
+      "status_counts": {
+        "passed": 3
+      }
+    }
+  },
+  "settings": {
+    "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "max_new_tokens": 512,
+    "decoding": "greedy",
+    "timeout_s": 10,
+    "mem_limit_mb": 1024,
+    "quant": "none",
+    "remote_code": true,
+    "max_repairs": 5,
+    "max_llm_calls": 6,
+    "stop_rules": "dev_test_passed, max_repairs_reached, repeated_code (same code + same error as before)",
+    "feedback": "compiler + dev test (test 1, shown in prompt)",
+    "final_tests": "all 3 tests",
+    "data": "Dataset/mbpp_initial_10.jsonl",
+    "code_extraction": "Python code blocks that define the function called in the visible test; one or identical -> that block, several different -> the last one (flagged ambiguous); model's own top-level test code removed",
+    "environment": {
+      "python": "3.13.14",
+      "host": "jupyter-ilkrza-ktu-lt---70392703",
+      "code_execution": "namespaces: net+pid; audit hook: no writes/deletes outside the temp folder, no reading of the project folder (dataset, results) or private config, no new processes, no sockets, no ctypes; limits: time, CPU, memory, file size",
+      "cuda_visible_devices": "1",
+      "torch": "2.11.0+cu128",
+      "transformers": "5.20.2",
+      "bitsandbytes": null,
+      "accelerate": "1.15.0",
+      "gpus": [
+        "NVIDIA A100-PCIE-40GB"
+      ],
+      "cuda": "12.8",
+      "model_revision": null,
+      "model_class": "Qwen2ForCausalLM",
+      "dtype": "torch.bfloat16",
+      "device_map": ""
+    }
+  },
+  "final_success_rate": 1.0,
+  "first_attempt_solve_rate": 0.8,
+  "fixed_by_repair": 2,
+  "stop_reason_counts": {
+    "dev_test_passed": 10
+  },
+  "dev_passed_but_hidden_failed": 0,
+  "first_status_counts": {
+    "passed": 8,
+    "test_failure": 2
+  },
+  "repair_summary": {
+    "tasks": 10,
+    "initially_correct": 8,
+    "initially_failed": 2,
+    "repaired": 2,
+    "still_failed": 0,
+    "broken_by_repair": 0,
+    "repair_success_rate": 1.0,
+    "repair_calls": 2
+  },
+  "repair_by_difficulty": {
+    "Easy": {
+      "tasks": 4,
+      "initially_correct": 3,
+      "initially_failed": 1,
+      "repaired": 1,
+      "still_failed": 0,
+      "broken_by_repair": 0,
+      "repair_success_rate": 1.0,
+      "repair_calls": 1
+    },
+    "Medium": {
+      "tasks": 3,
+      "initially_correct": 2,
+      "initially_failed": 1,
+      "repaired": 1,
+      "still_failed": 0,
+      "broken_by_repair": 0,
+      "repair_success_rate": 1.0,
+      "repair_calls": 1
+    },
+    "Hard": {
+      "tasks": 3,
+      "initially_correct": 3,
+      "initially_failed": 0,
+      "repaired": 0,
+      "still_failed": 0,
+      "broken_by_repair": 0,
+      "repair_success_rate": null,
+      "repair_calls": 0
+    }
+  },
+  "repair_by_first_error": {
+    "test_failure": {
+      "tasks": 2,
+      "repaired": 2
+    }
+  }
+}
