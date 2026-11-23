@@ -135,18 +135,32 @@ class HFBackend:
     def generate(self, system, user, task=None):
         return self.generate_chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
 
-    def generate_chat(self, messages):
-        """Any conversation (used by Strategy C's multi-step agent). Same decoding settings as generate()."""
+    def generate_chat(self, messages, stop_when=None):
+        """Any conversation (used by Strategy C). Same decoding as generate().
+        stop_when: optional function on the text generated so far; generation stops when it returns True
+        (C uses it to stop once the model starts writing a second action). A and B don't use it."""
         text = self.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         self.last_prompt = text  # exact text the model sees (chat template applied), saved in _code.jsonl
         enc = self.tok(text, return_tensors="pt", add_special_tokens=False).to(self.model.device)
+        n_in = enc["input_ids"].shape[-1]
+        extra = {}
+        if stop_when is not None:
+            import torch
+            from transformers import StoppingCriteria, StoppingCriteriaList
+            tok = self.tok
+
+            class _Stop(StoppingCriteria):
+                def __call__(self, input_ids, scores, **kw):
+                    done = bool(stop_when(tok.decode(input_ids[0][n_in:], skip_special_tokens=True)))
+                    return torch.full((input_ids.shape[0],), done, dtype=torch.bool, device=input_ids.device)
+            extra["stopping_criteria"] = StoppingCriteriaList([_Stop()])
         out = self.model.generate(
             **enc,
             max_new_tokens=self.max_new_tokens,
             do_sample=False,  # greedy -> reproducible
             pad_token_id=self.tok.pad_token_id or self.tok.eos_token_id,
+            **extra,
         )
-        n_in = enc["input_ids"].shape[-1]
         gen = out[0][n_in:]
         return self.tok.decode(gen, skip_special_tokens=True), n_in, len(gen)
 
