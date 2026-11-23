@@ -24,13 +24,14 @@ for f in glob.glob("Dataset/mbpp_*.jsonl"):
             tasks[t["task_id"]] = t
 
 total = same = 0
-for code_file in sorted(glob.glob("results/oneshot_*_code.jsonl") + glob.glob("results/feedback_*_code.jsonl")):
+for code_file in sorted(glob.glob("results/oneshot_*_code.jsonl") + glob.glob("results/feedback_*_code.jsonl") + glob.glob("results/agent_*_code.jsonl")):
     csv_file = code_file.replace("_code.jsonl", ".csv")
     stored = {r["task_id"]: r["status"] for r in csv.DictReader(open(csv_file, encoding="utf-8"))}
     diffs = []
     for line in open(code_file, encoding="utf-8"):
         g = json.loads(line)
-        code = g["attempts"][-1]["code"] if "attempts" in g else g["code"]  # B: last attempt, A: the answer
+        # B: last attempt, C: the code the agent had saved at the end, A: the answer
+        code = g["attempts"][-1]["code"] if "attempts" in g else g["final_code"] if "steps" in g else g["code"]
         status = base.run_code(base.add_tests_to_code(tasks[g["task_id"]], code), 10)[0] if code.strip() else "no_code"
         total += 1
         if status == stored[g["task_id"]]:
