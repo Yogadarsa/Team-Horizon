@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Failure report for A and B (no model needed).
+Failure report for A, B and C (no model needed).
 
-Reads the A and B runs for one data file and writes to results/analysis/:
-    failure_report_<data>.md   tables + every failed task with its feedback history
-    failures_<data>.csv        one row per failed task
+Reads the runs of one data file (A = oneshot_*, B = feedback_r*, C = agent_s*, C is optional) and writes to
+results/analysis/:
+    failure_report_<data>.md   comparison tables + every failed task with its history
+    failures_<data>.csv        one row per failed task (B and C)
 
 Our notes on why each task failed go in results/analysis/manual_notes_<data>.csv
-(task_id, model, cause, note). They are added to the report and the CSV.
+(task_id, model, strategy, cause, note). They are added to the report and the CSV.
 
-Categories for tasks still wrong after B:
+Categories for tasks still wrong at the end:
     passes_visible_fails_hidden  passes test 1 but fails the hidden tests
-    feedback_ignored             the model kept returning the same program
+    never_tested                 C only: the agent never ran its code (no run_tests / check_syntax)
+    feedback_ignored             the model kept returning the same program after the feedback
     changed_but_still_wrong      the code changed but never passed test 1
 
     python src/analyze_failures.py                        # mbpp_final_30
@@ -20,11 +22,12 @@ Categories for tasks still wrong after B:
 import argparse
 import ast
 import csv
-import sys
 import glob
 import json
 import re
+import sys
 from collections import Counter, defaultdict
+from math import comb
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,6 +41,13 @@ R, D = Path(a.results), a.data
 OUT = R / "analysis"
 OUT.mkdir(parents=True, exist_ok=True)
 ORDER = {"Easy": 0, "Medium": 1, "Hard": 2}
+
+TESTS = {}
+for f in glob.glob("Dataset/mbpp_*.jsonl"):
+    for line in open(f, encoding="utf-8"):
+        if line.strip():
+            row = json.loads(line)
+            TESTS[f"MBPP/{row['task_id']}"] = row["test_list"][0]
 
 
 def read(stem):
@@ -57,24 +67,6 @@ def pct(x, n):
     return f"{x}/{n} ({100 * x / n:.0f}%)" if n else "-"
 
 
-def ambiguous(logs):
-    """Answers with several different candidate code blocks (re-checked with the extraction rule)."""
-    n = 0
-    for t, g in logs.items():
-        fn = base.called_function(TESTS[t]) if t in TESTS else None
-        for x in g.get("attempts", [g]):
-            n += base.extract_code_info(x["raw_output"], fn)[1]["ambiguous"]
-    return n
-
-
-TESTS = {}
-for f in glob.glob("Dataset/mbpp_*.jsonl"):
-    for line in open(f, encoding="utf-8"):
-        if line.strip():
-            row = json.loads(line)
-            TESTS[f"MBPP/{row['task_id']}"] = row["test_list"][0]
-
-
 def same_program(code):
     """Code without comments and formatting (AST), so a version that only adds comments is not a new program."""
     try:
@@ -86,167 +78,252 @@ def same_program(code):
 def feedback_kind(fb):
     if not fb:
         return "passed"
-    m = re.match(r"(\w+Error|Timeout)", fb)
+    m = re.match(r"(?:FAILED: )?(\w+Error|Timeout)", fb)
     return m.group(1) if m else fb.split(":")[0][:30]
 
 
-# ---- find runs: one A and one B per model (B: newest naming feedback_r* preferred over feedback_it*)
+def ambiguous(strategy, logs):
+    """Answers with several different candidate code blocks (A/B re-checked with the rule, C from its log)."""
+    n = 0
+    for t, g in logs.items():
+        if strategy == "C":
+            n += sum(bool(s.get("extraction") and s["extraction"].get("ambiguous")) for s in g["steps"])
+            continue
+        fn = base.called_function(TESTS[t]) if t in TESTS else None
+        for x in g.get("attempts", [g]):
+            n += base.extract_code_info(x["raw_output"], fn)[1]["ambiguous"]
+    return n
+
+
+def first_ok(strategy, r):
+    """Was the first code correct on all tests? (A: its only answer)"""
+    if strategy == "A":
+        return r["status"] == "passed"
+    return r["first_status" if strategy == "B" else "first_code_status"] == "passed"
+
+
+def mcnemar(x, y):
+    """Exact McNemar test on paired results (same tasks). Returns (only x solved, only y solved, p)."""
+    b = sum(1 for t in x if x[t] and not y[t])
+    c = sum(1 for t in x if not x[t] and y[t])
+    n = b + c
+    p = min(1.0, 2 * sum(comb(n, k) for k in range(min(b, c) + 1)) / 2 ** n) if n else 1.0
+    return b, c, round(p, 3)
+
+
+# ---- find runs per model: A, B (feedback_r* preferred), C (agent_s*, optional)
 runs = {}
 for f in sorted(glob.glob(str(R / f"oneshot_*_mbpp_{D}.csv"))):
     label = Path(f).stem[len("oneshot_"):-len(f"_mbpp_{D}")]
     bs = sorted(glob.glob(str(R / f"feedback_r*_{label}_mbpp_{D}.csv"))) or \
         sorted(glob.glob(str(R / f"feedback_it*_{label}_mbpp_{D}.csv")))
+    cs = sorted(glob.glob(str(R / f"agent_s*_{label}_mbpp_{D}.csv")))
     if bs:
-        runs[short_model(label)] = (f[:-4], bs[-1][:-4])
+        runs[short_model(label)] = {"A": f[:-4], "B": bs[-1][:-4], **({"C": cs[-1][:-4]} if cs else {})}
 if not runs:
     raise SystemExit(f"No A/B runs found for {D} in {R}")
 
-md = [f"# Failure analysis: Strategy A and B on {D}", "",
+data = {m: {s: read(stem) for s, stem in st.items()} for m, st in runs.items()}
+strategies = [s for s in "ABC" if all(s in d for d in data.values())]
+title = " and ".join([", ".join(strategies[:-1]), strategies[-1]]) if len(strategies) > 1 else strategies[0]
+md = [f"# Failure analysis: Strategy {title} on {D}", "",
       "Generated by `src/analyze_failures.py` from the saved runs (no LLM). Files used:", ""]
-for m, (sa, sb_) in runs.items():
-    md += [f"* {m}: `{Path(sa).name}` and `{Path(sb_).name}`"]
-data, fail_rows = {}, []
-for m, (sa, sb_) in runs.items():
-    data[m] = (read(sa), read(sb_))
+for m, st in runs.items():
+    for s in strategies:
+        md += [f"* {m} {s}: `{Path(st[s]).name}`"]
+tids = sorted(next(iter(data.values()))["A"][0],
+              key=lambda t: (ORDER.get(next(iter(data.values()))["A"][0][t]["difficulty"], 9), int(t.split("/")[-1])))
+solved = {(m, s): {t: data[m][s][0][t]["solved"] == "1" for t in tids} for m in data for s in strategies}
 
 # ---- 1. overview
 md += ["", "## 1. Overview", "",
-       "| Model | A solved | B solved | B: first attempt wrong | repaired | still wrong | repair success | "
-       "avg LLM calls (B) | ambiguous extractions (A/B) |",
-       "|---|---|---|---|---|---|---|---|---|"]
-for m, ((ra, la), (rb, lb)) in data.items():
-    n = len(ra)
-    sa_ = sum(int(r["solved"]) for r in ra.values())
-    sb_n = sum(int(r["solved"]) for r in rb.values())
-    first_bad = [r for r in rb.values() if r["first_status"] != "passed"]
-    rep = sum(int(r["solved"]) for r in first_bad)
-    calls = sum(int(r["llm_calls"]) for r in rb.values()) / len(rb)
-    md += [f"| {m} | {pct(sa_, n)} | {pct(sb_n, len(rb))} | {len(first_bad)} | {rep} | {len(first_bad) - rep} | "
-           f"{pct(rep, len(first_bad))} | {calls:.2f} | {ambiguous(la)}/{ambiguous(lb)} |"]
-md += ["", "B's first attempt uses the same prompt as A, so 'first attempt wrong' should match A's failures "
-       "(differences would mean the runs are not deterministic)."]
-for m, ((ra, _), (rb, _)) in data.items():
+       "| Model | Strategy | Solved | First code wrong | Repaired | Still wrong | Avg LLM calls | "
+       "Avg input tokens | Avg output tokens | Ambiguous extractions |",
+       "|---|---|---|---|---|---|---|---|---|---|"]
+for m in data:
+    for s in strategies:
+        rows, logs = data[m][s]
+        n = len(rows)
+        bad = [r for r in rows.values() if not first_ok(s, r)]
+        rep = sum(int(r["solved"]) for r in bad)
+        avg = lambda k: sum(int(r[k]) for r in rows.values()) / n
+        md += [f"| {m} | {s} | {pct(sum(int(r['solved']) for r in rows.values()), n)} | {len(bad)} | "
+               f"{'-' if s == 'A' else rep} | {len(bad) - rep} | {avg('llm_calls'):.2f} | {avg('input_tokens'):.0f} | "
+               f"{avg('output_tokens'):.0f} | {ambiguous(s, logs)} |"]
+md += ["", "First code wrong = the first code (A: the answer; B: attempt 1; C: the first code the agent saved) fails "
+       "on all tests. B's attempt 1 uses the same prompt as A, so it should match A:"]
+for m in data:
+    ra, rb = data[m]["A"][0], data[m]["B"][0]
     diff = [t for t in ra if (ra[t]["status"] == "passed") != (rb[t]["first_status"] == "passed")]
-    md += [f"* {m}: A result = B first attempt on {len(ra) - len(diff)}/{len(ra)} tasks"
-           + (f" (different: {', '.join(diff)})" if diff else "")]
+    md += [f"* {m}: A = B attempt 1 on {len(ra) - len(diff)}/{len(ra)} tasks" + (f" (different: {', '.join(diff)})" if diff else "")]
+if "C" in strategies:
+    md += ["", "C uses its own system prompt (the agent rules), so its first code can differ from A's."]
 
-# ---- 2. by difficulty
-levels = sorted({r["difficulty"] for (ra, _), _ in data.values() for r in ra.values()}, key=lambda x: ORDER.get(x, 9))
-md += ["", "## 2. Solved by difficulty", "", "| Model | Strategy | " + " | ".join(levels) + " |",
+# ---- 2. paired comparison
+md += ["", "## 2. Strategies compared on the same tasks (exact McNemar test)", "",
+       "| Model | Comparison | Solved only by the first | Solved only by the second | p-value |", "|---|---|---|---|---|"]
+for m in data:
+    for i, s1 in enumerate(strategies):
+        for s2 in strategies[i + 1:]:
+            b, c, p = mcnemar(solved[(m, s1)], solved[(m, s2)])
+            md += [f"| {m} | {s1} vs {s2} | {b} | {c} | {p} |"]
+md += ["", "Only the tasks where the two strategies disagree count. p < 0.05 would mean the difference is unlikely "
+       "to be chance; with 30 tasks a difference of a few tasks is not enough."]
+
+# ---- 3. by difficulty
+levels = sorted({data[m]["A"][0][t]["difficulty"] for m in data for t in tids}, key=lambda x: ORDER.get(x, 9))
+md += ["", "## 3. Solved by difficulty", "", "| Model | Strategy | " + " | ".join(levels) + " |",
        "|---|---|" + "---|" * len(levels)]
-for m, ((ra, _), (rb, _)) in data.items():
-    for name, rows in (("A", ra), ("B", rb)):
+for m in data:
+    for s in strategies:
+        rows = data[m][s][0]
         cells = []
         for lv in levels:
             sub = [r for r in rows.values() if r["difficulty"] == lv]
             cells.append(pct(sum(int(r["solved"]) for r in sub), len(sub)))
-        md += [f"| {m} | {name} | " + " | ".join(cells) + " |"]
+        md += [f"| {m} | {s} | " + " | ".join(cells) + " |"]
 
-# ---- 3. repair by first error type
-md += ["", "## 3. B: what happened to each kind of first error", "",
+# ---- 4. B repairs by first error
+md += ["", "## 4. B: what happened to each kind of first error", "",
        "| Model | first error (on all tests) | tasks | repaired | still wrong |", "|---|---|---|---|---|"]
-for m, (_, (rb, _)) in data.items():
+for m in data:
     by = defaultdict(list)
-    for r in rb.values():
+    for r in data[m]["B"][0].values():
         if r["first_status"] != "passed":
             by[r["first_status"]].append(r)
     for k, v in sorted(by.items()):
         rep = sum(int(r["solved"]) for r in v)
         md += [f"| {m} | {k} | {len(v)} | {rep} | {len(v) - rep} |"]
 
-# ---- 4. stop reasons
-md += ["", "## 4. B: why the repair loop stopped", "", "| Model | stop reason | tasks | solved in the end |",
-       "|---|---|---|---|"]
-for m, (_, (rb, _)) in data.items():
-    by = defaultdict(list)
-    for r in rb.values():
-        by[r["stop_reason"]].append(r)
-    for k, v in sorted(by.items()):
-        md += [f"| {m} | {k} | {len(v)} | {sum(int(r['solved']) for r in v)} |"]
+# ---- 5. stop reasons
+md += ["", "## 5. Why the loop stopped", "", "| Model | Strategy | stop reason | tasks | solved in the end |",
+       "|---|---|---|---|---|"]
+for m in data:
+    for s in [x for x in strategies if x != "A"]:
+        by = defaultdict(list)
+        for r in data[m][s][0].values():
+            by[r["stop_reason"]].append(r)
+        for k, v in sorted(by.items()):
+            md += [f"| {m} | {s} | {k} | {len(v)} | {sum(int(r['solved']) for r in v)} |"]
 
-# ---- 5. task matrix
-tids = sorted(next(iter(data.values()))[0][0], key=lambda t: (ORDER.get(next(iter(data.values()))[0][0][t]["difficulty"], 9),
-                                                               int(t.split("/")[-1])))
-md += ["", "## 5. Every task (S = solved, x = not solved)", "",
-       "| Task | Difficulty | " + " | ".join(f"{m} A | {m} B" for m in data) + " |",
-       "|---|---|" + "---|---|" * len(data)]
+# ---- 6. C behaviour
+if "C" in strategies:
+    md += ["", "## 6. C: how the agent behaved", "",
+           "| Model | Avg steps | write_code | check_syntax | run_tests | read_code | Submitted after a test | "
+           "Format errors | Replies cut after the 1st action | Code under another action |",
+           "|---|---|---|---|---|---|---|---|---|---|"]
+    for m in data:
+        rows = list(data[m]["C"][0].values())
+        tot = lambda k: sum(int(r.get(k) or 0) for r in rows)
+        subm = sum(r["stop_reason"] == "submitted" for r in rows)
+        md += [f"| {m} | {tot('steps') / len(rows):.1f} | {tot('n_write_code')} | {tot('n_check_syntax')} | "
+               f"{tot('n_run_tests')} | {tot('n_read_code')} | {tot('tested_before_submit')} of {subm} | "
+               f"{tot('format_errors')} | {tot('multi_action_replies')} | {tot('code_ignored')} |"]
+
+# ---- 7. task matrix
+md += ["", "## 7. Every task (S = solved, x = not solved)", "",
+       "| Task | Difficulty | " + " | ".join(f"{m} {s}" for m in data for s in strategies) + " |",
+       "|---|---|" + "---|" * (len(data) * len(strategies))]
 for t in tids:
-    cells = []
-    for m, ((ra, _), (rb, _)) in data.items():
-        cells += ["S" if ra[t]["solved"] == "1" else "x", "S" if rb[t]["solved"] == "1" else "x"]
-    diff = next(iter(data.values()))[0][0][t]["difficulty"]
-    md += [f"| {t} | {diff} | " + " | ".join(cells) + " |"]
-all_fail = [t for t in tids if all(ra[t]["solved"] == "0" and rb[t]["solved"] == "0" for (ra, _), (rb, _) in data.values())]
+    cells = ["S" if solved[(m, s)][t] else "x" for m in data for s in strategies]
+    md += [f"| {t} | {data[next(iter(data))]['A'][0][t]['difficulty']} | " + " | ".join(cells) + " |"]
+all_fail = [t for t in tids if not any(solved[(m, s)][t] for m in data for s in strategies)]
 md += ["", f"Not solved by any model or strategy: {', '.join(all_fail) if all_fail else 'none'}"]
 
-# ---- 6. every failed task, with history
-md += ["", "## 6. Tasks still wrong after B, with the error history", ""]
-cat_count = Counter()
-for m, ((ra, la), (rb, lb)) in data.items():
+# ---- 8/9. failed tasks with history
+fail_rows, cat_count = [], Counter()
+
+
+def add_fail(m, s, t, cat, r, calls, codes, hist, extra):
+    cat_count[(m, s, cat)] += 1
+    fail_rows.append({"model": m, "strategy": s, "task_id": t, "difficulty": r["difficulty"], "category": cat,
+                      "A_status": data[m]["A"][0][t]["status"], "final_status": r["status"], "llm_calls": calls,
+                      "distinct_programs": codes, "stop_reason": r["stop_reason"], "history": hist,
+                      "final_error": (r["error"] or "")[:200], "manual_cause": "", "manual_note": "", **extra})
+
+
+md += ["", "## 8. Tasks still wrong after B, with the error history", ""]
+for m in data:
     md += [f"### {m}", ""]
+    ra, (rb, lb) = data[m]["A"][0], data[m]["B"]
     for t in tids:
         r = rb[t]
         if r["solved"] == "1":
             continue
-        g = lb[t]
-        atts = g["attempts"]
+        atts = lb[t]["attempts"]
         codes = len({same_program(x["code"]) for x in atts})
-        if int(r["dev_passed"]):
-            cat = "passes_visible_fails_hidden"
-        elif codes == 1:
-            cat = "feedback_ignored"
-        else:
-            cat = "changed_but_still_wrong"
-        cat_count[(m, cat)] += 1
+        cat = ("passes_visible_fails_hidden" if int(r["dev_passed"]) else
+               "feedback_ignored" if codes == 1 else "changed_but_still_wrong")
         hist = " -> ".join(feedback_kind(x["feedback"]) for x in atts)
-        hit = any(x.get("hit_token_limit") for x in atts)
         md += [f"**{t}** ({r['difficulty']}): {cat}. A: {ra[t]['status']}. B: {r['first_status']} -> {r['status']}, "
-               f"{r['llm_calls']} LLM calls, {codes} different program(s), stop: {r['stop_reason']}"
-               + (", reached the token limit" if hit else ""), "",
+               f"{r['llm_calls']} LLM calls, {codes} different program(s), stop: {r['stop_reason']}", "",
                f"* visible-test feedback per attempt: {hist}",
                f"* last feedback: `{(atts[-1]['feedback'] or 'visible test passed').strip()[:160]}`",
                f"* final error on all tests: `{(r['error'] or '').strip()[:160]}`", ""]
-        fail_rows.append({"model": m, "task_id": t, "difficulty": r["difficulty"], "category": cat,
-                          "A_status": ra[t]["status"], "B_first_status": r["first_status"], "B_final_status": r["status"],
-                          "B_llm_calls": r["llm_calls"], "B_distinct_codes": codes, "B_stop_reason": r["stop_reason"],
-                          "visible_feedback_history": hist, "final_error": (r["error"] or "")[:200],
-                          "manual_cause": "", "manual_note": ""})
+        add_fail(m, "B", t, cat, r, r["llm_calls"], codes, hist, {})
 
+if "C" in strategies:
+    md += ["## 9. Tasks still wrong after C, with the agent's steps", ""]
+    for m in data:
+        md += [f"### {m}", ""]
+        rc, lc = data[m]["C"]
+        for t in tids:
+            r = rc[t]
+            if r["solved"] == "1":
+                continue
+            steps = lc[t]["steps"]
+            codes = len({same_program(s_["code"]) for s_ in steps if s_["action"] == "write_code" and s_["code"]})
+            tested = int(r["n_run_tests"]) + int(r["n_check_syntax"]) > 0
+            cat = ("passes_visible_fails_hidden" if int(r["final_dev_passed"]) else
+                   "never_tested" if not tested else
+                   "feedback_ignored" if codes <= 1 else "changed_but_still_wrong")
+            acts = " ".join(s_["action"] or "?" for s_ in steps)
+            seen = [s_["observation"].split("\n")[0] for s_ in steps if s_["action"] in ("run_tests", "check_syntax")]
+            hist = " -> ".join(feedback_kind(o if o.startswith("FAILED") or "Error" in o else "") for o in seen) or "-"
+            md += [f"**{t}** ({r['difficulty']}): {cat}. A: {data[m]['A'][0][t]['status']}. C: first code "
+                   f"{r['first_code_status']} -> {r['status']}, {r['steps']} steps, {codes} different program(s), "
+                   f"stop: {r['stop_reason']}", "",
+                   f"* actions: {acts}",
+                   f"* test / syntax results the agent saw: {hist}",
+                   f"* final error on all tests: `{(r['error'] or '').strip()[:160]}`", ""]
+            add_fail(m, "C", t, cat, r, r["llm_calls"], codes, hist, {})
+
+# ---- manual notes
 notes_file = OUT / f"manual_notes_{D}.csv"
 notes = {}
 if notes_file.exists():
     for n in csv.DictReader(open(notes_file, encoding="utf-8")):
-        notes[(n["model"], n["task_id"])] = n
+        notes[(n["model"], n.get("strategy") or "B", n["task_id"])] = n
 for fr in fail_rows:
-    n = notes.get((fr["model"], fr["task_id"])) or notes.get(("all", fr["task_id"]))
+    n = notes.get((fr["model"], fr["strategy"], fr["task_id"]))
     if n:
         fr["manual_cause"], fr["manual_note"] = n["cause"], n["note"]
-    else:
-        fr["manual_cause"] = ""
 
-md += ["## 7. Failure categories (B)", "", "| Model | category | tasks |", "|---|---|---|"]
-for (m, c), v in sorted(cat_count.items()):
-    md += [f"| {m} | {c} | {v} |"]
-md += ["", "Category meaning: passes_visible_fails_hidden = the code fits the example but not the task "
-       "(the feedback loop cannot see this); feedback_ignored = every attempt is the same program (comments and "
-       "formatting ignored), the feedback changed nothing; changed_but_still_wrong = the model changed the code but "
-       "never passed the visible test.", "",
-       f"Why each task failed (read by hand) goes into `manual_notes_{D}.csv` (task_id, model, cause, note); "
-       "it is merged into section 8 and into the failures CSV."]
+md += ["## 10. Failure categories", "", "| Model | Strategy | category | tasks |", "|---|---|---|---|"]
+for (m, s, c), v in sorted(cat_count.items()):
+    md += [f"| {m} | {s} | {c} | {v} |"]
+md += ["", "passes_visible_fails_hidden = the code fits the example but not the task (feedback on test 1 cannot see "
+       "this); never_tested = the agent never ran its code; feedback_ignored = the same program (comments and "
+       "formatting ignored) after the feedback; changed_but_still_wrong = the code changed but never passed test 1.",
+       "", f"Why each task failed (read by hand) goes into `manual_notes_{D}.csv` (task_id, model, strategy, cause, "
+       "note); it is merged into section 11 and into the failures CSV."]
 
 if notes:
-    md += ["", "## 8. Manual analysis: why each task failed", "",
+    md += ["", "## 11. Manual analysis: why each task failed", "",
            f"From `{notes_file.name}` (hand-written after reading the task, the tests and the model's code).", "",
-           "| Task | Model | Cause | Note |", "|---|---|---|---|"]
+           "| Task | Model | Strategy | Cause | Note |", "|---|---|---|---|---|"]
     for fr in fail_rows:
-        md += [f"| {fr['task_id']} | {fr['model']} | {fr['manual_cause'] or '-'} | {fr['manual_note'] or 'not analysed yet'} |"]
-    causes = Counter((fr["model"], fr["manual_cause"]) for fr in fail_rows if fr["manual_cause"])
-    md += ["", "| Model | cause | tasks |", "|---|---|---|"]
-    for (m, c), v in sorted(causes.items()):
-        md += [f"| {m} | {c} | {v} |"]
-    md += ["", "Cause meaning: task_spec_mismatch = the hidden tests require something the task text does not say "
-           "(the model cannot know it); wrong_algorithm = the model chose a method that does not solve the task; "
-           "wrong_edge_case = right method, wrong base case or special case."]
+        md += [f"| {fr['task_id']} | {fr['model']} | {fr['strategy']} | {fr['manual_cause'] or '-'} | "
+               f"{fr['manual_note'] or 'not analysed yet'} |"]
+    causes = Counter((fr["model"], fr["strategy"], fr["manual_cause"]) for fr in fail_rows if fr["manual_cause"])
+    md += ["", "| Model | Strategy | cause | tasks |", "|---|---|---|---|"]
+    for (m, s, c), v in sorted(causes.items()):
+        md += [f"| {m} | {s} | {c} | {v} |"]
+    md += ["", "task_spec_mismatch = the hidden tests require something the task text does not say; "
+           "wrong_algorithm = the method does not solve the task; wrong_edge_case = right method, wrong base or "
+           "special case; wrong_function_name = the code does not define the function the test calls; "
+           "syntax_error_kept = the code has a syntax error the model did not fix; incomplete_code = the code is "
+           "missing a part (e.g. no return)."]
 
 (OUT / f"failure_report_{D}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 with open(OUT / f"failures_{D}.csv", "w", newline="", encoding="utf-8") as fh:

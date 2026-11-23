@@ -3,7 +3,8 @@
 Checks the code extraction on all saved answers (no model needed).
 
 For every answer it applies the extraction rule again and checks that the run used the
-same code. Answers with two different versions of the function (ambiguous) are listed,
+same code. For C it also checks every agent reply: the action and the saved code must be
+exactly what the rules (first_action, parse_action) give. Answers with two different versions of the function (ambiguous) are listed,
 and every version is run on test 1 and on all tests, so we can see if picking another
 block would have changed anything.
 
@@ -20,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline_oneshot as base  # noqa: E402
 import strategy_b as sb  # noqa: E402
+import strategy_c as sc  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--results", default="results")
@@ -91,3 +93,29 @@ print(f"Code used in the runs = code picked by the rule: {n - len(mismatches)}/{
       + ("" if not mismatches else "   DIFFERENT: " + "; ".join(mismatches[:10])))
 print(f"Ambiguous answers: {total['several_last']}; final results that would change with another choice: "
       f"{len(changed_result)}" + ("" if not changed_result else " -> " + "; ".join(changed_result)))
+
+# Strategy C: the agent's replies go through first_action + parse_action. Check that the action and the
+# saved code in the log are exactly what the rules give for the raw reply.
+c_files = sorted(glob.glob(f"{a.results}/agent_*_code.jsonl"))
+if c_files:
+    print()
+    c_total, c_cases, c_bad = 0, Counter(), []
+    for f in c_files:
+        run = Path(f).name.replace("_code.jsonl", "")
+        for line in open(f, encoding="utf-8"):
+            g = json.loads(line)
+            fn = tasks[g["task_id"]]["func_name"]
+            for st in g["steps"]:
+                reply, _ = sc.first_action(st["raw_output"])
+                action, code, fmt, ext = sc.parse_action(reply, fn)
+                c_total += 1
+                if action != st["action"]:
+                    c_bad.append(f"{run} {g['task_id']} step {st['step']} (action)")
+                if action == "write_code":
+                    c_cases[ext["case"]] += 1
+                    if base.remove_model_tests(code) != st["code"]:
+                        c_bad.append(f"{run} {g['task_id']} step {st['step']} (code)")
+        print(f"{run[:75]:<77} checked")
+    print(f"\nC: {c_total} agent replies, saved code cases: " + ", ".join(f"{k}={v}" for k, v in sorted(c_cases.items())))
+    print(f"C: action and saved code match the rules: {c_total - len(c_bad)}/{c_total}"
+          + ("" if not c_bad else "   DIFFERENT: " + "; ".join(c_bad[:10])))
