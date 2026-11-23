@@ -60,7 +60,16 @@ CSV_FIELDS = base.CSV_FIELDS + [
 ]
 
 
-def agent_system_prompt(max_steps):
+EXAMPLES = {
+    # default: a small made-up function, not related to any task
+    "add": "THOUGHT: I add the two numbers.\nACTION: write_code\n```python\ndef add(a, b):\n    return a + b\n```",
+    # for the check whether the example's function name changes the model's naming: no real function in it
+    "placeholder": "THOUGHT: <why this code>\nACTION: write_code\n```python\n<your complete code>\n```",
+}
+EXAMPLE = "add"  # set by --example
+
+
+def agent_system_prompt(max_steps, example=None):
     return (
         "You are an expert Python programmer working as an agent. You solve one programming task "
         "step by step. In every reply, choose exactly ONE action.\n\n"
@@ -74,12 +83,7 @@ def agent_system_prompt(max_steps):
         "THOUGHT: <one or two short sentences>\n"
         "ACTION: <one action name>\n\n"
         "For write_code, the code must be in the SAME reply, right after the ACTION line. Example:\n"
-        "THOUGHT: I add the two numbers.\n"
-        "ACTION: write_code\n"
-        "```python\n"
-        "def add(a, b):\n"
-        "    return a + b\n"
-        "```\n\n"
+        + EXAMPLES[example or EXAMPLE] + "\n\n"
         f"You can take at most {max_steps} actions. If you run out of actions, the saved code is submitted."
     )
 
@@ -357,10 +361,14 @@ def main():
     ap.add_argument("--quant", choices=["8bit"])
     ap.add_argument("--no-remote-code", action="store_true")
     ap.add_argument("--out-dir", default="results")
+    ap.add_argument("--example", choices=list(EXAMPLES), default="add",
+                    help="write_code example in the system message (placeholder = no real function, for the check)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     base.LIMITS["mem_mb"] = a.mem_mb
+    global EXAMPLE
+    EXAMPLE = a.example
     if a.selftest:
         sys.exit(selftest())
 
@@ -371,7 +379,8 @@ def main():
     label = a.model + (f"@{a.quant}" if a.quant else "")
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"agent_s{a.max_steps}_{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
+    ex = "" if a.example == "add" else f"ex-{a.example}_"
+    stem = f"agent_s{a.max_steps}_{ex}{re.sub(r'[^\w.-]', '_', label)}_{a.dataset}_{Path(a.data_file).stem}"
     csv_path, log_path = out / f"{stem}.csv", out / f"{stem}_code.jsonl"
     settings = {"model": a.model, "max_new_tokens": a.max_new_tokens, "decoding": "greedy", "timeout_s": a.timeout,
                 "mem_limit_mb": a.mem_mb, "quant": a.quant or "none", "remote_code": not a.no_remote_code,
@@ -381,6 +390,7 @@ def main():
                 "code_extraction": base.EXTRACTION_RULE,
                 "dev_tests": "test 1 (shown in prompt), same as B", "final_tests": "all 3 tests",
                 "data": a.data_file, "system_prompt": agent_system_prompt(a.max_steps),
+                "example": a.example,
                 "environment": base.env_info(backend)}
 
     rows = read_rows(csv_path) if a.resume and csv_path.exists() else []

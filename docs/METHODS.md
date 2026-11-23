@@ -206,6 +206,23 @@ of generated tokens and the time went down.
 For comparison with A and B, the first code the agent saves is also run on all tests (`first_code_status`). The
 agent never sees this run and it isn't timed.
 
+**Check of the example in the system message.** With DeepSeek, the agent used another function name than the test in
+4 of 30 tasks. To see if the example (`def add(a, b)`) caused this, we ran C again on `final_30` with both models and
+a placeholder example with no real function (`--example placeholder`, results in `results/ablation_example/`,
+compared with `src/check_example_effect.py`):
+
+| Model | Example | Solved | First code correct | Tasks with a wrong function name | Format errors |
+|---|---|---|---|---|---|
+| Qwen | `def add(a, b)` | 27/30 | 26/30 | 0 | 0 |
+| Qwen | placeholder | 26/30 | 26/30 | 0 | 0 |
+| DeepSeek | `def add(a, b)` | 20/30 | 19/30 | 4 | 6 |
+| DeepSeek | placeholder | 21/30 | 21/30 | 3 | 49 |
+
+The wrong names mostly stay (3 of 4), so they come from the agent setup in general, not from the example. Without a
+real example DeepSeek makes many more format errors, so we kept `def add(a, b)` for the main runs. The totals hardly
+change, but for DeepSeek 5 tasks changed their result (3 better, 2 worse): the agent's results depend on small
+changes in the prompt.
+
 ## 9. What we measure
 
 Per task (CSV). A, B and C have the same columns, and B and C have some more:
@@ -277,6 +294,7 @@ change) or `changed_but_still_wrong`. We also read every failure by hand and wro
     nohup bash src/run_all.sh > run_all.log 2>&1 &     # A and B on both data files, C on final_30, both models
     python src/verify_extraction.py                    # check the extraction on all answers (and C's actions)
     python src/reevaluate_sandbox.py                   # final evaluation again in the sandbox (A, B and C)
+    python src/check_example_effect.py                 # C with the add example vs a placeholder example
     python src/analyze_failures.py                     # failure report
 
 On 22 Nov we ran all A and B experiments again with the final code. Every task in all 8 runs got the same result as
@@ -302,6 +320,9 @@ and the model returned the same code again.
   are not in the final set.
 * C's system message is different from A and B, so its first code can differ from A's. With DeepSeek the first code
   was correct less often in C (19 of 30) than in A (25 of 30); in 4 tasks it used another function name than the
-  test (for example `is_length_odd` instead of `word_len`). We don't know yet how much of this comes from the agent
-  rules in general and how much from the example in the system message (a function called `add`).
+  test (for example `is_length_odd` instead of `word_len`). The check in section 8 shows this is mostly not caused
+  by the example in the system message.
+* C's results for DeepSeek change for single tasks when the prompt changes a little (section 8), so results for
+  single tasks should not be read too much into. Repeating the runs with a few prompt versions would show how large
+  this effect is.
 * C's `repeated_code` stop is a practical rule, not a proof as in B (section 8).
